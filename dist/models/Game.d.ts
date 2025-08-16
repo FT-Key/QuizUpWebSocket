@@ -1,1 +1,2 @@
-export declare const Game: import("mongoose").Model<any, {}, {}, {}, any, any>;
+import mongoose from "mongoose";
+export declare const Game: mongoose.Model<any, {}, {}, {}, any, any>;

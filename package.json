@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "node --loader ts-node/esm src/socket-server.ts"
+    "dev": "ts-node-esm src/socket-server.ts",
+    "build": "tsc",
+    "start": "node dist/socket-server.js"
   },
   "dependencies": {
     "dotenv": "^17.2.1",

@@ -1,4 +1,9 @@
 // src/socket-server.ts
+import dotenv from "dotenv";
+import path from "path";
+
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+
 import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import connectToDB from "./mongoose.js";
@@ -236,11 +241,17 @@ io.on("connection", (socket) => {
   });
 });
 
-const PORT = 4000;
-connectToDB().then(() => {
-  httpServer.listen(PORT, () => {
-    console.log(
-      `Socket.IO + MongoDB server listening on http://localhost:${PORT}`
-    );
+// Puerto
+const PORT = process.env.PORT ? parseInt(process.env.PORT) : 4000;
+
+// Conectar MongoDB y levantar server
+connectToDB()
+  .then(() => {
+    httpServer.listen(PORT, () => {
+      console.log(`Socket.IO + MongoDB server listening on port ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error("Failed to connect to MongoDB:", err);
+    process.exit(1);
   });
-});

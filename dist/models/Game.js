@@ -1,4 +1,5 @@
-import { Schema, model, models } from "mongoose";
+import mongoose from "mongoose";
+const { Schema, model, models } = mongoose;
 const questionSchema = new Schema({
     text: { type: String, required: true },
     options: { type: [String], required: true, length: 4 },
