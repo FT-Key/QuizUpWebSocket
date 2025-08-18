@@ -19,4 +19,6 @@ export type GameDoc = {
     createdAt: Date;
     creatorId: string;
     currentQuestionIndex: number;
+    currentQuestionStartTime?: number;
+    questionTimeLimit?: number;
 };

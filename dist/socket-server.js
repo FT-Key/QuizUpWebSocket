@@ -1,110 +1,27 @@
 // src/socket-server.ts
 import dotenv from "dotenv";
 import path from "path";
-dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
+import { readFile } from "fs/promises";
 import connectToDB from "./mongoose.js";
 import { Game as GameModel } from "./models/Game.js";
-const httpServer = createServer((req, res) => {
-    if (req.url === "/" || req.url === "/index") {
-        const html = `
-      <html>
-        <head>
-          <title>QuizUp Stats</title>
-          <style>
-            body { font-family: Arial, sans-serif; background: #f4f4f9; margin: 0; padding: 20px; }
-            h1 { text-align: center; color: #333; }
-            .game-card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
-            .game-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-            .game-header h2 { margin: 0; color: #007bff; }
-            .game-header span { font-weight: bold; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            th, td { padding: 8px 12px; border: 1px solid #ddd; text-align: left; }
-            th { background-color: #007bff; color: white; }
-            tr:nth-child(even) { background-color: #f9f9f9; }
-            .status-waiting { color: #ffc107; font-weight: bold; }
-            .status-active { color: #28a745; font-weight: bold; }
-            .status-finished { color: #dc3545; font-weight: bold; }
-          </style>
-          <script src="/socket.io/socket.io.js"></script>
-          <script>
-            const socket = io();
-
-            function renderGames(games) {
-              const container = document.getElementById("games-container");
-              container.innerHTML = "";
-              const totalGames = games.length;
-              const totalPlayers = games.reduce((acc, g) => acc + g.players.length, 0);
-              container.innerHTML += \`
-                <div style="margin-bottom: 20px; font-weight: bold;">
-                  Total Games: \${totalGames} | Total Players: \${totalPlayers}
-                </div>
-              \`;
-              if (totalGames === 0) {
-                container.innerHTML += "<p>No games created yet</p>";
-                return;
-              }
-              games.forEach((game) => {
-                let html = \`
-                  <div class="game-card">
-                    <div class="game-header">
-                      <h2>\${game.name || "Unnamed Game"}</h2>
-                      <span class="status-\${game.status}">\${game.status.toUpperCase()}</span>
-                    </div>
-                    <p><strong>Players:</strong> \${game.players.length} | <strong>Questions:</strong> \${game.questions.length}</p>
-                \`;
-                if (game.players.length > 0) {
-                  html += \`
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>#</th>
-                          <th>Player</th>
-                          <th>Score</th>
-                          <th>Correct Answers</th>
-                          <th>Percentage</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                  \`;
-                  game.players.forEach((p, i) => {
-                    const correctAnswers = Object.keys(p.answers || {}).filter(qId => {
-                      const q = game.questions.find(q => q.id === qId || q._id === qId);
-                      return q && p.answers[qId] === q.correctAnswer;
-                    }).length;
-                    const percentage = game.questions.length ? (correctAnswers / game.questions.length) * 100 : 0;
-                    html += \`
-                      <tr>
-                        <td>\${i + 1}</td>
-                        <td>\${p.name}</td>
-                        <td>\${p.score}</td>
-                        <td>\${correctAnswers}</td>
-                        <td>\${percentage.toFixed(2)}%</td>
-                      </tr>
-                    \`;
-                  });
-                  html += "</tbody></table>";
-                } else {
-                  html += "<p>No players yet</p>";
-                }
-                html += "</div>";
-                container.innerHTML += html;
-              });
-            }
-
-            socket.on("update-dashboard", (games) => renderGames(games));
-            window.addEventListener("DOMContentLoaded", () => socket.emit("request-dashboard"));
-          </script>
-        </head>
-        <body>
-          <h1>QuizUp Games Stats</h1>
-          <div id="games-container"></div>
-        </body>
-      </html>
-    `;
-        res.writeHead(200, { "Content-Type": "text/html" });
-        res.end(html);
+import crypto from "crypto";
+import { DEFAULT_TIME_LIMIT_MS } from "./constants/game.js";
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+const httpServer = createServer(async (req, res) => {
+    if (req.url === "/" || req.url === "/index.html") {
+        try {
+            const filePath = path.resolve(process.cwd(), "src", "index.html");
+            const html = await readFile(filePath, "utf-8");
+            res.writeHead(200, { "Content-Type": "text/html" });
+            res.end(html);
+        }
+        catch (err) {
+            res.writeHead(500, { "Content-Type": "text/plain" });
+            res.end("Error loading index.html");
+            console.error(err);
+        }
     }
     else {
         res.writeHead(404, { "Content-Type": "text/plain" });
@@ -112,6 +29,9 @@ const httpServer = createServer((req, res) => {
     }
 });
 const io = new SocketIOServer(httpServer, { cors: { origin: "*" } });
+// Timeouts para preguntas activas
+const activeQuestionTimeouts = new Map();
+// ---------------------- Helpers ----------------------
 async function getDashboardState() {
     const gamesDocs = await GameModel.find()
         .sort({ createdAt: -1 })
@@ -137,9 +57,10 @@ async function getDashboardState() {
         createdAt: g.createdAt,
         creatorId: g.creatorId,
         currentQuestionIndex: g.currentQuestionIndex,
+        currentQuestionStartTime: g.currentQuestionStartTime || Date.now(),
+        questionTimeLimit: g.questionTimeLimit || DEFAULT_TIME_LIMIT_MS,
     }));
 }
-// Función auxiliar para emitir a todos los admins de un juego
 async function emitGameUpdate(gameId) {
     const gameDoc = await GameModel.findById(gameId).lean();
     if (!gameDoc)
@@ -165,63 +86,206 @@ async function emitGameUpdate(gameId) {
         createdAt: gameDoc.createdAt,
         creatorId: gameDoc.creatorId,
         currentQuestionIndex: gameDoc.currentQuestionIndex,
+        currentQuestionStartTime: gameDoc.currentQuestionStartTime || Date.now(),
+        questionTimeLimit: gameDoc.questionTimeLimit || DEFAULT_TIME_LIMIT_MS,
     };
     io.to(`game-${gameId}-admins`).emit("game-updated", { game });
 }
+async function emitDashboard() {
+    const games = await getDashboardState();
+    io.emit("update-dashboard", games);
+}
+function startQuestionTimeout(gameId, timeLimit) {
+    if (activeQuestionTimeouts.has(gameId)) {
+        clearTimeout(activeQuestionTimeouts.get(gameId));
+    }
+    const timeout = setTimeout(async () => {
+        const game = await GameModel.findById(gameId);
+        if (!game || game.status !== "active")
+            return;
+        // fin automático de la pregunta
+        game.currentQuestionStartTime = 0;
+        await game.save();
+        await emitGameUpdate(gameId);
+        io.to(`game-${gameId}-players`).emit("question-finished", {
+            currentQuestionIndex: game.currentQuestionIndex,
+        });
+    }, timeLimit);
+    activeQuestionTimeouts.set(gameId, timeout);
+}
+// ---------------------- Socket Events ----------------------
 io.on("connection", (socket) => {
     console.log("Socket connected:", socket.id);
-    // ---- Admin joins
+    // Admin se une
     socket.on("join-admin", (gameId) => {
         socket.join(`game-${gameId}-admins`);
-        console.log(`Admin joined room game-${gameId}-admins`);
     });
-    // ---- Player joins
-    socket.on("join-game", async ({ gameId, playerId }) => {
-        socket.join(`game-${gameId}-players`); // <-- sala de jugadores
-        console.log(`Player ${playerId} joined game ${gameId}`);
-        // Actualizamos dashboard
-        const games = await getDashboardState();
-        io.emit("update-dashboard", games);
-        // Emitimos a admins
-        await emitGameUpdate(gameId);
+    // Player se une
+    socket.on("join-game", async (data) => {
+        const game = await GameModel.findById(data.gameId);
+        if (!game)
+            return;
+        // Evitar duplicados simple por IP
+        const ip = socket.handshake.address;
+        const alreadyConnected = game.players.find((p) => p.id === ip);
+        if (alreadyConnected)
+            return;
+        let player;
+        if (!data.playerId && data.playerName) {
+            player = {
+                id: crypto.randomUUID(),
+                name: data.playerName,
+                gameId: data.gameId,
+                answers: {},
+                score: 0,
+                joinedAt: new Date(),
+            };
+            game.players.push(player);
+            await game.save();
+        }
+        else if (data.playerId) {
+            player = game.players.find((p) => p.id === data.playerId);
+        }
+        socket.join(`game-${data.gameId}-players`);
+        await emitDashboard();
+        await emitGameUpdate(data.gameId);
     });
-    // ---- Start game
+    // Start game
     socket.on("start-game", async ({ gameId }) => {
-        // Actualizamos dashboard global
-        const games = await getDashboardState();
-        io.emit("update-dashboard", games);
-        // Emitimos a admins de ese juego
+        const game = await GameModel.findById(gameId);
+        if (!game)
+            return;
+        game.status = "active";
+        game.currentQuestionIndex = 0;
+        game.currentQuestionStartTime = Date.now();
+        await game.save();
+        startQuestionTimeout(gameId, game.questionTimeLimit);
+        await emitDashboard();
         await emitGameUpdate(gameId);
-        // Emitimos a todos los jugadores del juego
-        io.to(`game-${gameId}-players`).emit("game-started", { gameId });
-    });
-    // ---- Submit answer
-    socket.on("submit-answer", async ({ gameId }) => {
-        const games = await getDashboardState();
-        io.emit("update-dashboard", games);
-        await emitGameUpdate(gameId);
-    });
-    // ---- Finish game
-    socket.on("finish-game", async ({ gameId }) => {
-        const games = await getDashboardState();
-        io.emit("update-dashboard", games);
-        await emitGameUpdate(gameId);
-        io.to(`game-${gameId}-admins`).emit("game-finished", {
-            results: "updated",
+        const currentQuestion = game.questions[0];
+        io.to(`game-${gameId}-players`).emit("game-started", {
+            question: currentQuestion,
+            timeLeft: game.questionTimeLimit / 1000,
         });
     });
-    // ---- Request dashboard (for stats page)
+    // Submit answer
+    socket.on("submit-answer", async (data) => {
+        const { gameId, playerId, questionId, answer } = data;
+        // 1) obtenemos el juego
+        const game = await GameModel.findById(gameId);
+        if (!game)
+            return;
+        // 2) actualizamos respuesta y score
+        const player = game.players.find((p) => p.id === playerId);
+        const question = game.questions.find((q) => q._id.toString() === questionId);
+        if (!player || !question)
+            return;
+        player.answers[questionId] = answer;
+        if (answer === question.correctAnswer) {
+            player.score += 1;
+            const elapsed = Date.now() - game.currentQuestionStartTime;
+            const remainingMs = game.questionTimeLimit - elapsed;
+            const remainingSeconds = Math.floor(remainingMs / 1000);
+            if (remainingSeconds > 0)
+                player.score += remainingSeconds;
+        }
+        // Guardamos el juego actualizado (Mongo)
+        await game.save();
+        // 3) Volvemos a cargar el juego actualizado desde Mongo para emitir
+        const updatedGame = await GameModel.findById(gameId).lean();
+        if (updatedGame) {
+            io.to(`game-${gameId}-admins`).emit("game-updated", {
+                game: updatedGame,
+            });
+        }
+        // Emitimos que un jugador ha respondido (puede usarse o no en el front)
+        io.to(`game-${gameId}-players`).emit("answer-submitted", { playerId });
+        // 4) si todos respondieron → terminamos pregunta automáticamente
+        if (updatedGame &&
+            updatedGame.players.every((p) => p.answers && p.answers[questionId] !== undefined)) {
+            // limpiamos timeout de la pregunta
+            if (activeQuestionTimeouts.has(gameId)) {
+                clearTimeout(activeQuestionTimeouts.get(gameId));
+                activeQuestionTimeouts.delete(gameId);
+            }
+            // marcamos fin de pregunta
+            await GameModel.updateOne({ _id: gameId }, { currentQuestionStartTime: 0 });
+            io.to(`game-${gameId}-players`).emit("question-finished", {
+                currentQuestionIndex: updatedGame.currentQuestionIndex,
+            });
+        }
+    });
+    // Next question
+    socket.on("next-question", async ({ gameId }) => {
+        const game = await GameModel.findById(gameId);
+        if (!game)
+            return;
+        if (game.currentQuestionIndex + 1 >= game.questions.length) {
+            game.status = "finished";
+            game.currentQuestionStartTime = 0;
+        }
+        else {
+            game.currentQuestionIndex += 1;
+            game.currentQuestionStartTime = Date.now();
+            startQuestionTimeout(gameId, game.questionTimeLimit);
+        }
+        await game.save();
+        await emitDashboard();
+        await emitGameUpdate(gameId);
+        if (game.status === "finished") {
+            io.to(`game-${gameId}-players`).emit("game-finished", {});
+        }
+        else {
+            const nextQuestion = game.questions[game.currentQuestionIndex];
+            io.to(`game-${gameId}-players`).emit("question-updated", {
+                question: nextQuestion,
+                currentQuestionIndex: game.currentQuestionIndex,
+                timeLeft: game.questionTimeLimit / 1000,
+            });
+        }
+    });
+    // Finish current question manual
+    socket.on("finish-question", async ({ gameId }) => {
+        if (activeQuestionTimeouts.has(gameId)) {
+            clearTimeout(activeQuestionTimeouts.get(gameId));
+            activeQuestionTimeouts.delete(gameId);
+        }
+        const game = await GameModel.findById(gameId);
+        if (!game)
+            return;
+        game.currentQuestionStartTime = 0;
+        await game.save();
+        await emitGameUpdate(gameId);
+        io.to(`game-${gameId}-players`).emit("question-finished", {
+            currentQuestionIndex: game.currentQuestionIndex,
+        });
+    });
+    // Finish entire game
+    socket.on("finish-game", async ({ gameId }) => {
+        if (activeQuestionTimeouts.has(gameId)) {
+            clearTimeout(activeQuestionTimeouts.get(gameId));
+            activeQuestionTimeouts.delete(gameId);
+        }
+        const game = await GameModel.findById(gameId);
+        if (!game)
+            return;
+        game.status = "finished";
+        game.currentQuestionStartTime = 0;
+        await game.save();
+        await emitDashboard();
+        await emitGameUpdate(gameId);
+        io.to(`game-${gameId}-players`).emit("game-finished", {});
+    });
+    // Dashboard request
     socket.on("request-dashboard", async () => {
-        const games = await getDashboardState();
-        socket.emit("update-dashboard", games);
+        await emitDashboard();
     });
     socket.on("disconnect", () => {
         console.log("Socket disconnected:", socket.id);
     });
 });
-// Puerto
+// ---------------------- Puerto ----------------------
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 4000;
-// Conectar MongoDB y levantar server
 connectToDB()
     .then(() => {
     httpServer.listen(PORT, () => {

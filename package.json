@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "ts-node-esm src/socket-server.ts",
+    "dev": "node --loader ts-node/esm src/socket-server.ts",
     "build": "tsc",
     "start": "node dist/socket-server.js"
   },

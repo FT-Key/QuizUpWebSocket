@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QuizUp Games Stats</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f4f9;
+      margin: 0;
+      padding: 20px;
+    }
+
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+
+    .game-card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .game-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .game-header h2 {
+      margin: 0;
+      color: #007bff;
+    }
+
+    .game-header span {
+      font-weight: bold;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+
+    th,
+    td {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      text-align: left;
+    }
+
+    th {
+      background-color: #007bff;
+      color: white;
+    }
+
+    tr:nth-child(even) {
+      background-color: #f9f9f9;
+    }
+
+    .status-waiting {
+      color: #ffc107;
+      font-weight: bold;
+    }
+
+    .status-active {
+      color: #28a745;
+      font-weight: bold;
+    }
+
+    .status-finished {
+      color: #dc3545;
+      font-weight: bold;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>QuizUp Games Stats</h1>
+  <div id="games-container"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+
+    function renderGames(games) {
+      const container = document.getElementById("games-container");
+      container.innerHTML = "";
+
+      const activeGames = games.filter(g => g.status === "active");
+      const waitingGames = games.filter(g => g.status === "waiting");
+      const finishedGames = games.filter(g => g.status === "finished");
+
+      const totalActiveGames = activeGames.length;
+      const totalActivePlayers = activeGames.reduce((acc, g) => acc + g.players.length, 0);
+
+      container.innerHTML += `
+    <div style="margin-bottom: 20px; font-weight: bold;">
+      TotalActive Games: ${totalActiveGames} | Total Active Players: ${totalActivePlayers}
+    </div>
+  `;
+
+
+
+      function renderGroup(title, gamesInGroup) {
+        if (gamesInGroup.length === 0) {
+          return `<p>No games in this category</p>`;
+        }
+
+        let html = "";
+        gamesInGroup.forEach((game) => {
+          let gameHtml = `
+        <div class="game-card">
+          <div class="game-header">
+            <h2>${game.name || "Unnamed Game"}</h2>
+            <span class="status-${game.status}">${game.status.toUpperCase()}</span>
+          </div>
+          <p><strong>Players:</strong> ${game.players.length} | <strong>Questions:</strong> ${game.questions.length}</p>
+      `;
+
+          if (game.players.length > 0) {
+            gameHtml += `
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Player</th>
+                <th>Score</th>
+                <th>Correct Answers</th>
+                <th>Percentage</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+            game.players.forEach((p, i) => {
+              const correctAnswers = Object.keys(p.answers || {}).filter(qId => {
+                const q = game.questions.find(q => q.id === qId || q._id === qId);
+                return q && p.answers[qId] === q.correctAnswer;
+              }).length;
+
+              const percentage = game.questions.length ? (correctAnswers / game.questions.length) * 100 : 0;
+
+              gameHtml += `
+            <tr>
+              <td>${i + 1}</td>
+              <td>${p.name}</td>
+              <td>${p.score}</td>
+              <td>${correctAnswers}</td>
+              <td>${percentage.toFixed(2)}%</td>
+            </tr>
+          `;
+            });
+
+            gameHtml += "</tbody></table>";
+          } else {
+            gameHtml += "<p>No players yet</p>";
+          }
+
+          gameHtml += "</div>";
+          html += gameHtml;
+        });
+
+        return html;
+      }
+
+      container.innerHTML += `
+    <details open>
+      <summary style="font-size:18px; font-weight:bold; margin-bottom:10px">Active Games (${activeGames.length})</summary>
+      ${renderGroup("Active", activeGames)}
+    </details>
+
+    <details>
+      <summary style="font-size:18px; font-weight:bold; margin-bottom:10px">Waiting Games (${waitingGames.length})</summary>
+      ${renderGroup("Waiting", waitingGames)}
+    </details>
+
+    <details>
+      <summary style="font-size:18px; font-weight:bold; margin-bottom:10px">Finished Games (${finishedGames.length})</summary>
+      ${renderGroup("Finished", finishedGames)}
+    </details>
+  `;
+    }
+
+    socket.on("update-dashboard", (games) => renderGames(games));
+    window.addEventListener("DOMContentLoaded", () => socket.emit("request-dashboard"));
+  </script>
+</body>
+
+</html>

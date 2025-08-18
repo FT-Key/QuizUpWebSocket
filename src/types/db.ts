@@ -1,6 +1,5 @@
-// src/types/db.ts
 export type GameDoc = {
-  _id: any; // o mongoose.Types.ObjectId si importas mongoose
+  _id: any; // o mongoose.Types.ObjectId
   name: string;
   status: "waiting" | "active" | "finished";
   questions: Array<{
@@ -20,4 +19,6 @@ export type GameDoc = {
   createdAt: Date;
   creatorId: string;
   currentQuestionIndex: number;
+  currentQuestionStartTime?: number;
+  questionTimeLimit?: number;
 };
