@@ -1,4 +1,5 @@
 // src/gameStore.ts
+
 import type { Game, Player, CreateGameData, Question } from "./types/types.js";
 import { v4 as uuidv4 } from "uuid";
 import { DEFAULT_TIME_LIMIT_MS } from "./constants/game.js";
@@ -8,6 +9,7 @@ class GameStore {
   private players: Map<string, Player> = new Map();
   private questionTimeouts: Map<string, NodeJS.Timeout> = new Map();
 
+  /** Crea un juego nuevo desde cero (nuevo ID generado)  */
   createGame(data: CreateGameData, creatorId: string): Game {
     const questions: Question[] = data.questions.map((q) => ({
       id: uuidv4(),
@@ -31,6 +33,11 @@ class GameStore {
 
     this.games.set(game.id, game);
     return game;
+  }
+
+  /** Permite registrar un juego existente cargado desde MongoDB */
+  addGameFromDb(game: Game) {
+    this.games.set(game.id, game);
   }
 
   getGame(gameId: string): Game | undefined {
@@ -78,7 +85,7 @@ class GameStore {
       const elapsed = Date.now() - game.currentQuestionStartTime;
       const remainingMs = game.questionTimeLimit - elapsed;
       if (remainingMs > 0) {
-        player.score += Math.floor(remainingMs / 10); // bonus centésimas de segundo
+        player.score += Math.floor(remainingMs / 10); // bonus centésimas
       }
     }
 
@@ -129,7 +136,6 @@ class GameStore {
 
     this.clearQuestionTimeout(gameId);
     game.currentQuestionStartTime = 0;
-
     return true;
   }
 
@@ -148,7 +154,7 @@ class GameStore {
 
     const timeout = setTimeout(() => {
       this.finishCurrentQuestion(gameId);
-      // Emit se hace desde socket handler
+      // Emit se hace desde el handler
     }, game.questionTimeLimit);
 
     this.questionTimeouts.set(gameId, timeout);

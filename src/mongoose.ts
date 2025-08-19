@@ -1,3 +1,4 @@
+// src/mongoose.ts
 import dotenv from "dotenv";
 import path from "path";
 
@@ -15,7 +16,14 @@ let isConnected = false;
 
 export default async function connectToDB() {
   if (isConnected) return;
-  await mongoose.connect(MONGODB_URI);
-  isConnected = true;
-  console.log("✅ MongoDB connected");
+  try {
+    // Evitar warning de strictQuery si hace falta
+    mongoose.set("strictQuery", false);
+    await mongoose.connect(MONGODB_URI);
+    isConnected = true;
+    console.log("✅ MongoDB connected");
+  } catch (err) {
+    console.error("❌ MongoDB connection error:", err);
+    throw err;
+  }
 }
