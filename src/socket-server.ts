@@ -49,13 +49,7 @@ io.on("connection", (socket: Socket<SocketEvents, SocketEvents>) => {
     await emitDashboard(io);
   });
 
-  // request current game state (para reconexión o refresh)
-  socket.on("request-game-state", async ({ gameId }) => {
-    const game = gameStore.getGame(gameId);
-    if (!game) return;
-
-    await emitGameUpdate(io, gameId);
-  });
+  // Ya NO emitimos game-state aquí, se maneja en gameHandlers
 
   socket.on("disconnect", () => {
     console.log("Socket disconnected:", socket.id);

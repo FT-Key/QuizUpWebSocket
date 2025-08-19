@@ -121,11 +121,9 @@ export interface SocketEvents {
 
   // nuevo evento que emite el servidor con el estado actual
   "game-state": (data: {
+    game: Game;
     currentQuestion: Question | null;
     currentQuestionIndex: number;
-    status: Game["status"];
     timeLeft: number;
-    players: Player[];
-    results?: any;
   }) => void;
 }

@@ -180,10 +180,8 @@ export default function registerGameHandlers(
     const game = gameStore.getGame(gameId);
     if (!game) return;
 
-    // Pregunta actual (o null si no hay)
     const currentQuestion = game.questions[game.currentQuestionIndex] || null;
 
-    // Tiempo restante de la pregunta actual
     const timeLeft = game.currentQuestionStartTime
       ? Math.max(
           0,
@@ -193,19 +191,16 @@ export default function registerGameHandlers(
               1000
           )
         )
-      : 0;
+      : game.questionTimeLimit;
 
-    // Emitir directamente al jugador que lo solicitó
+    // Enviar Game completo + estado dinámico
     socket.emit("game-state", {
+      game,
       currentQuestion,
       currentQuestionIndex: game.currentQuestionIndex,
-      status: game.status,
       timeLeft,
-      players: game.players,
-      results: gameStore.getGameResults(gameId) || undefined,
     });
 
-    // Opcional: actualizar admins con el estado completo del juego
     await emitGameUpdate(io, gameId);
   });
 }
