@@ -1,5 +1,7 @@
+import { Types } from "mongoose";
+
 export type GameDoc = {
-  _id: any; // o mongoose.Types.ObjectId
+  _id: Types.ObjectId;
   name: string;
   status: "waiting" | "active" | "finished";
   questions: Array<{
