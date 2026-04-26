@@ -44,6 +44,14 @@ class GameStore {
     return this.games.get(gameId);
   }
 
+  removePlayer(gameId: string, playerId: string): boolean {
+    const game = this.games.get(gameId);
+    if (!game) return false;
+    game.players = game.players.filter((p) => p.id !== playerId);
+    this.players.delete(playerId);
+    return true;
+  }
+
   addPlayer(gameId: string, playerName: string): Player | null {
     const game = this.games.get(gameId);
     if (!game) return null;
@@ -67,11 +75,20 @@ class GameStore {
     questionId: string,
     answer: number
   ): { finishedQuestion: boolean } | false {
-    const player = this.players.get(playerId);
-    if (!player) return false;
+    // Buscar jugador en el array de players del juego (no en el Map separado)
+    let player: Player | undefined;
+    let game: Game | undefined;
 
-    const game = this.games.get(player.gameId);
-    if (!game) return false;
+    for (const g of this.games.values()) {
+      const found = g.players.find((p) => p.id === playerId);
+      if (found) {
+        player = found;
+        game = g;
+        break;
+      }
+    }
+
+    if (!player || !game) return false;
 
     const question = game.questions.find((q) => q.id === questionId);
     if (!question) return false;
@@ -85,7 +102,7 @@ class GameStore {
       const elapsed = Date.now() - game.currentQuestionStartTime;
       const remainingMs = game.questionTimeLimit - elapsed;
       if (remainingMs > 0) {
-        player.score += Math.floor(remainingMs / 10); // bonus centésimas
+        player.score += Math.floor(remainingMs / 10);
       }
     }
 

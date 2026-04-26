@@ -18,6 +18,35 @@ interface JoinPayload {
  * 2️⃣ Lo agrega o actualiza en gameStore
  * 3️⃣ Emite eventos a admins y al jugador
  */
+export async function onLeaveGame(
+  io: Server<SocketEvents, SocketEvents>,
+  socket: Socket<SocketEvents, SocketEvents>,
+  { gameId, playerId }: { gameId: string; playerId: string }
+): Promise<void> {
+  console.log("[playerHandlers] onLeaveGame", { gameId, playerId });
+
+  // Eliminar de DB
+  await GameModel.findByIdAndUpdate(gameId, {
+    $pull: { players: { id: playerId } },
+  });
+
+  // Eliminar del store en memoria
+  gameStore.removePlayer(gameId, playerId);
+
+  const storeGame = gameStore.getGame(gameId);
+
+  // Sacar al socket de la sala
+  socket.leave(`game-${gameId}`);
+
+  if (storeGame) {
+    // Notificar a admins y demás jugadores
+    io.to(`game-${gameId}-admins`).emit("player-left", { playerId, game: storeGame });
+    io.to(`game-${gameId}`).emit("player-left", { playerId, game: storeGame });
+  }
+
+  await emitDashboard(io);
+}
+
 export default async function onJoinGame(
   io: Server<SocketEvents, SocketEvents>,
   socket: Socket<SocketEvents, SocketEvents>,
@@ -117,6 +146,12 @@ export default async function onJoinGame(
 
   // 7️⃣ Emitir evento solo al jugador recién conectado
   socket.emit("joined", {
+    player,
+    game: storeGame,
+  });
+
+  // Notificar a admins que un jugador se unió
+  io.to(`game-${gameId}-admins`).emit("player-joined", {
     player,
     game: storeGame,
   });

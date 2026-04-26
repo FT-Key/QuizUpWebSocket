@@ -97,6 +97,7 @@ export interface ClientToServerEvents {
   "finish-question": (data: { gameId: string }) => void;
   "finish-game": (data: { gameId: string }) => void;
   "submit-answer": (data: SubmitAnswerData) => void;
+  "leave-game": (data: { gameId: string; playerId: string }) => void;
   "request-dashboard": () => void;
   "request-game-state": (data: { gameId: string }) => void;
 }
@@ -105,6 +106,7 @@ export interface ClientToServerEvents {
 export interface ServerToClientEvents {
   joined: (data: { player: Player; game: Game }) => void;
   "player-joined": (data: { player: Player; game: Game }) => void;
+  "player-left": (data: { playerId: string; game: Game }) => void;
   "game-updated": (data: { game: Game }) => void;
 
   "join-error": (data: { message: string }) => void; // ✅ agregado
