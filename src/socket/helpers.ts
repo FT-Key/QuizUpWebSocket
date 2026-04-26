@@ -30,7 +30,7 @@ export async function buildGame(gameDoc: GameDoc): Promise<GameType> {
     createdAt: gameDoc.createdAt,
     creatorId: gameDoc.creatorId,
     currentQuestionIndex: gameDoc.currentQuestionIndex,
-    currentQuestionStartTime: gameDoc.currentQuestionStartTime || Date.now(),
+    currentQuestionStartTime: gameDoc.currentQuestionStartTime ?? 0,
     questionTimeLimit: gameDoc.questionTimeLimit || DEFAULT_TIME_LIMIT_MS,
   };
 }
@@ -42,7 +42,7 @@ export async function emitGameUpdate(io: any, gameId: string) {
   const game = await buildGame(doc);
 
   io.to(`game-${gameId}-admins`).emit("game-updated", { game });
-  io.to(`game-${gameId}-players`).emit("game-updated", { game });
+  io.to(`game-${gameId}`).emit("game-updated", { game });
 }
 
 export async function emitDashboard(io: any) {

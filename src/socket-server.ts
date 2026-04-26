@@ -8,7 +8,7 @@ import connectToDB from "./mongoose.js";
 
 import registerAdminHandlers from "./socket/handlers/adminHandlers.js";
 import registerGameHandlers from "./socket/handlers/gameHandlers.js";
-import onJoinGame from "./socket/handlers/playerHandlers.js";
+import onJoinGame, { onLeaveGame } from "./socket/handlers/playerHandlers.js";
 import { emitDashboard } from "./socket/helpers.js";
 import { gameStore } from "./gameStore.js";
 import type { SocketEvents } from "./types/types.js";
@@ -67,6 +67,27 @@ io.on("connection", (socket: Socket<SocketEvents, SocketEvents>) => {
       await onJoinGame(io, socket, payload);
     } catch (err) {
       console.error("[socket-server] error in onJoinGame:", err);
+    }
+  });
+
+  // submit answer — solo registra, NO termina la pregunta aunque todos hayan respondido
+  socket.on("submit-answer", (payload) => {
+    console.log("[socket-server] submit-answer from", socket.id, payload.playerId, "q:", payload.questionId, "ans:", payload.answer);
+    const result = gameStore.submitAnswer(payload.playerId, payload.questionId, payload.answer);
+    if (!result) {
+      console.warn("[socket-server] submitAnswer returned false — player not found?", payload.playerId);
+    } else {
+      console.log("[socket-server] answer registered, finishedQuestion:", result.finishedQuestion);
+    }
+    // No emitir question-finished aquí — el timer del servidor es la única fuente de verdad
+  });
+
+  // leave player
+  socket.on("leave-game", async (payload) => {
+    try {
+      await onLeaveGame(io, socket, payload);
+    } catch (err) {
+      console.error("[socket-server] error in onLeaveGame:", err);
     }
   });
 
