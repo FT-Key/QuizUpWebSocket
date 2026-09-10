@@ -12,12 +12,6 @@ interface JoinPayload {
   playerName?: string;
 }
 
-/**
- * Maneja la conexión de un jugador a un juego.
- * 1️⃣ Lo agrega a MongoDB si no existía
- * 2️⃣ Lo agrega o actualiza en gameStore
- * 3️⃣ Emite eventos a admins y al jugador
- */
 export async function onLeaveGame(
   io: Server<SocketEvents, SocketEvents>,
   socket: Socket<SocketEvents, SocketEvents>,
@@ -25,21 +19,18 @@ export async function onLeaveGame(
 ): Promise<void> {
   console.log("[playerHandlers] onLeaveGame", { gameId, playerId });
 
-  // Eliminar de DB
-  await GameModel.findByIdAndUpdate(gameId, {
-    $pull: { players: { id: playerId } },
-  });
+  await GameModel.findOneAndUpdate(
+    { gameCode: gameId },
+    { $pull: { players: { id: playerId } } }
+  );
 
-  // Eliminar del store en memoria
   gameStore.removePlayer(gameId, playerId);
 
   const storeGame = gameStore.getGame(gameId);
 
-  // Sacar al socket de la sala
   socket.leave(`game-${gameId}`);
 
   if (storeGame) {
-    // Notificar a admins y demás jugadores
     io.to(`game-${gameId}-admins`).emit("player-left", { playerId, game: storeGame });
     io.to(`game-${gameId}`).emit("player-left", { playerId, game: storeGame });
   }
@@ -58,14 +49,12 @@ export default async function onJoinGame(
     playerName,
   });
 
-  // 1️⃣ Buscar juego en DB
-  let gameDoc = await GameModel.findById(gameId);
+  let gameDoc = await GameModel.findOne({ gameCode: gameId });
   if (!gameDoc) {
     socket.emit("join-error", { message: "Game not found" });
     throw new Error("Game not found");
   }
 
-  // 2️⃣ Crear o recuperar jugador
   let player: Player | undefined;
   if (!playerId && playerName) {
     player = {
@@ -79,7 +68,6 @@ export default async function onJoinGame(
   } else if (playerId) {
     const dbPlayer = (gameDoc.players as any[]).find((p: any) => p.id === playerId);
     if (dbPlayer) {
-      // Convert Mongoose Map to plain object
       const plainAnswers: Record<string, number> = {};
       if (dbPlayer.answers instanceof Map) {
         for (const [k, v] of dbPlayer.answers) plainAnswers[k] = v;
@@ -102,7 +90,6 @@ export default async function onJoinGame(
     throw new Error("Invalid join data");
   }
 
-  // 3️⃣ Guardar jugador en DB si no existía
   const playersInDb = gameDoc.players as Player[];
   if (!playersInDb.find((p) => p.id === player.id)) {
     playersInDb.push(player);
@@ -110,10 +97,8 @@ export default async function onJoinGame(
     await gameDoc.save();
   }
 
-  // 4️⃣ Agregar o actualizar jugador en gameStore
   let storeGame = gameStore.getGame(gameId);
   if (!storeGame) {
-    // Si el juego no está en memoria, lo agregamos
     const questions = (gameDoc.questions || []).map((q: any) => ({
       id: q._id?.toString() || "",
       text: q.text,
@@ -132,7 +117,7 @@ export default async function onJoinGame(
     });
 
     const newGame: Game = {
-      id: gameDoc._id.toString(),
+      id: gameDoc.gameCode,
       name: gameDoc.name,
       questions,
       creatorId: gameDoc.creatorId,
@@ -147,16 +132,13 @@ export default async function onJoinGame(
     gameStore.addGameFromDb(newGame);
     storeGame = newGame;
   } else {
-    // Actualizar jugadores en memoria
     if (!storeGame.players.find((p) => p.id === player!.id)) {
       storeGame.players.push(player);
     }
   }
 
-  // 5️⃣ Unir socket a la sala general de jugadores
   socket.join(`game-${gameId}`);
 
-  // 6️⃣ Emitir game-state actualizado a todos los admins
   const currentQuestion =
     storeGame.questions[storeGame.currentQuestionIndex] || null;
 
@@ -171,19 +153,16 @@ export default async function onJoinGame(
         : storeGame.questionTimeLimit,
   });
 
-  // 7️⃣ Emitir evento solo al jugador recién conectado
   socket.emit("joined", {
     player,
     game: storeGame,
   });
 
-  // Notificar a admins que un jugador se unió
   io.to(`game-${gameId}-admins`).emit("player-joined", {
     player,
     game: storeGame,
   });
 
-  // 8️⃣ Actualizar snapshot / dashboard si aplica
   await emitGameUpdate(io, gameId);
   await emitDashboard(io);
 

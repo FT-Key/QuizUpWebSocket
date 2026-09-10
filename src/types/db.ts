@@ -3,6 +3,7 @@ import { Types } from "mongoose";
 export type GameDoc = {
   _id: Types.ObjectId;
   name: string;
+  gameCode: string;
   status: "waiting" | "active" | "finished";
   questions: Array<{
     _id?: any;

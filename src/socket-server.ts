@@ -17,6 +17,10 @@ dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 const httpServer = createServer(async (req, res) => {
   try {
+    if (req.url === "/health") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ status: "ok", uptime: process.uptime() }));
+    }
     if (req.url === "/" || req.url === "/index.html") {
       const html = await readFile(
         path.resolve(process.cwd(), "src", "index.html"),

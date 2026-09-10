@@ -19,6 +19,7 @@ const playerSchema = new Schema({
 
 const gameSchema = new Schema({
   name: { type: String, required: true },
+  gameCode: { type: String, required: true, unique: true, index: true },
   questions: { type: [questionSchema], required: true },
   createdAt: { type: Date, default: Date.now },
   creatorId: { type: String, required: true },
@@ -28,7 +29,9 @@ const gameSchema = new Schema({
     default: "waiting",
   },
   currentQuestionIndex: { type: Number, default: 0 },
-  players: { type: [playerSchema], default: [] }, // <- Aquí agregas players
+  currentQuestionStartTime: { type: Number, default: 0 },
+  questionTimeLimit: { type: Number, default: 30000 },
+  players: { type: [playerSchema], default: [] },
 });
 
 export const Game = models.Game || model("Game", gameSchema);

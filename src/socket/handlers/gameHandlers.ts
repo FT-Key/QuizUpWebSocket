@@ -23,7 +23,6 @@ function startQuestionTimeout(io: any, gameId: string, timeLimit: number) {
       return;
     }
 
-    // Guard against race condition: if question was already finished by submitAnswer, skip
     if (game.currentQuestionStartTime === 0) {
       console.log(`[gameHandlers] timeout fired but question already finished (startTime=0), skipping`);
       return;
@@ -32,10 +31,8 @@ function startQuestionTimeout(io: any, gameId: string, timeLimit: number) {
     console.log(`[gameHandlers] timeout fired for game ${gameId}, q index ${game.currentQuestionIndex}`);
     gameStore.finishCurrentQuestion(gameId);
 
-    // Persist player answers and scores to MongoDB so the REST API can read them
     try {
       const bulkOps = game.players.map((p: any) => {
-        // Convert answers to plain object (Mongoose Map needs plain object for $set)
         const answersObj: Record<string, number> = {};
         if (p.answers instanceof Map) {
           for (const [k, v] of p.answers) answersObj[k] = v;
@@ -44,7 +41,7 @@ function startQuestionTimeout(io: any, gameId: string, timeLimit: number) {
         }
         return {
           updateOne: {
-            filter: { _id: gameId, "players.id": p.id },
+            filter: { gameCode: gameId, "players.id": p.id },
             update: { $set: { "players.$.answers": answersObj, "players.$.score": p.score } },
           },
         };
@@ -61,7 +58,6 @@ function startQuestionTimeout(io: any, gameId: string, timeLimit: number) {
     io.to(`game-${gameId}-admins`).emit("question-finished", { currentQuestionIndex: game.currentQuestionIndex });
     console.log(`[gameHandlers] question-finished emitted for game ${gameId}`);
 
-    // Emit game-updated so clients get the latest state (players with answers, scores, etc.)
     io.to(`game-${gameId}`).emit("game-updated", { game });
     io.to(`game-${gameId}-admins`).emit("game-updated", { game });
     console.log(`[gameHandlers] game-updated emitted after question-finished for game ${gameId}`);
@@ -87,11 +83,10 @@ export default function registerGameHandlers(io: any, socket: Socket<SocketEvent
     console.log(`[gameHandlers] ─── start-game START ───`);
     console.log(`[gameHandlers]   gameId: ${gameId}, socket: ${socket.id}`);
 
-    // Ensure game is in memory (load from DB if needed)
     let game = gameStore.getGame(gameId);
     if (!game) {
       try {
-        const doc = await GameModel.findById(gameId).lean<GameDoc | null>();
+        const doc = await GameModel.findOne({ gameCode: gameId }).lean<GameDoc | null>();
         if (!doc) { console.warn(`[gameHandlers] startGame: game not found in DB: ${gameId}`); return; }
         const built = await buildGame(doc);
         gameStore.addGameFromDb(built);
@@ -128,7 +123,6 @@ export default function registerGameHandlers(io: any, socket: Socket<SocketEvent
     const advanced = gameStore.nextQuestion(gameId);
     const game = gameStore.getGame(gameId)!;
 
-    // Persist current player answers/scores before advancing
     try {
       const bulkOps = game.players.map((p: any) => {
         const answersObj: Record<string, number> = {};
@@ -139,7 +133,7 @@ export default function registerGameHandlers(io: any, socket: Socket<SocketEvent
         }
         return {
           updateOne: {
-            filter: { _id: gameId, "players.id": p.id },
+            filter: { gameCode: gameId, "players.id": p.id },
             update: { $set: { "players.$.answers": answersObj, "players.$.score": p.score } },
           },
         };
@@ -174,7 +168,6 @@ export default function registerGameHandlers(io: any, socket: Socket<SocketEvent
     }
 
     await emitDashboard(io).catch(console.error);
-    // NO llamar emitGameUpdate aquí — causaría que game-updated sobreescriba currentQuestionIndex con el valor viejo de DB
   });
 
   socket.on("finish-game", async ({ gameId }) => {
@@ -185,7 +178,6 @@ export default function registerGameHandlers(io: any, socket: Socket<SocketEvent
     const finished = gameStore.finishGame(gameId);
     if (!finished) { console.warn(`[gameHandlers] finishGame failed for ${gameId}`); return; }
 
-    // Log player data BEFORE persist
     const gameBefore = gameStore.getGame(gameId);
     if (gameBefore) {
       for (const p of gameBefore.players) {
@@ -193,7 +185,6 @@ export default function registerGameHandlers(io: any, socket: Socket<SocketEvent
       }
     }
 
-    // Persist status change and player answers/scores to MongoDB so REST API reads the correct data
     try {
       if (gameBefore) {
         const bulkOps = gameBefore.players.map((p: any) => {
@@ -205,7 +196,7 @@ export default function registerGameHandlers(io: any, socket: Socket<SocketEvent
           }
           return {
             updateOne: {
-              filter: { _id: gameId, "players.id": p.id },
+              filter: { gameCode: gameId, "players.id": p.id },
               update: { $set: { "players.$.answers": answersObj, "players.$.score": p.score } },
             },
           };
@@ -214,7 +205,7 @@ export default function registerGameHandlers(io: any, socket: Socket<SocketEvent
           await GameModel.bulkWrite(bulkOps);
         }
       }
-      await GameModel.findByIdAndUpdate(gameId, { status: "finished" });
+      await GameModel.findOneAndUpdate({ gameCode: gameId }, { status: "finished" });
       console.log(`[gameHandlers] game status and player data persisted to DB for ${gameId}`);
     } catch (err) {
       console.error(`[gameHandlers] failed to persist finish-game to DB:`, err);
@@ -223,7 +214,6 @@ export default function registerGameHandlers(io: any, socket: Socket<SocketEvent
     const game = gameStore.getGame(gameId);
     const results = gameStore.getGameResults(gameId);
 
-    // Log player data for debugging
     if (game) {
       for (const p of game.players) {
         console.log(`[gameHandlers]   player ${p.name} (${p.id}): answers=${JSON.stringify(p.answers)}, score=${p.score}`);
@@ -244,7 +234,7 @@ export default function registerGameHandlers(io: any, socket: Socket<SocketEvent
 
     if (!game) {
       try {
-        const doc = await GameModel.findById(gameId).lean<GameDoc | null>();
+        const doc = await GameModel.findOne({ gameCode: gameId }).lean<GameDoc | null>();
         if (!doc) { console.log(`[gameHandlers] game not found in DB: ${gameId}`); return; }
         const built = await buildGame(doc);
         gameStore.addGameFromDb(built);

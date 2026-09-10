@@ -6,7 +6,7 @@ import { DEFAULT_TIME_LIMIT_MS } from "../constants/game.js";
 
 export async function buildGame(gameDoc: GameDoc): Promise<GameType> {
   return {
-    id: gameDoc._id.toString(),
+    id: gameDoc.gameCode,
     name: gameDoc.name,
     status: gameDoc.status as GameType["status"],
     questions: (gameDoc.questions || []).map(
@@ -29,7 +29,7 @@ export async function buildGame(gameDoc: GameDoc): Promise<GameType> {
         return {
           id: p.id,
           name: p.name,
-          gameId: gameDoc._id.toString(),
+          gameId: gameDoc.gameCode,
           answers: plainAnswers,
           score: p.score,
           joinedAt: p.joinedAt,
@@ -45,7 +45,7 @@ export async function buildGame(gameDoc: GameDoc): Promise<GameType> {
 }
 
 export async function emitGameUpdate(io: any, gameId: string) {
-  const doc = await GameModel.findById(gameId).lean<GameDoc>();
+  const doc = await GameModel.findOne({ gameCode: gameId }).lean<GameDoc>();
   if (!doc) return;
 
   const game = await buildGame(doc);
