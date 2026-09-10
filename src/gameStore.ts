@@ -7,7 +7,6 @@ import { DEFAULT_TIME_LIMIT_MS } from "./constants/game.js";
 class GameStore {
   private games: Map<string, Game> = new Map();
   private players: Map<string, Player> = new Map();
-  private questionTimeouts: Map<string, NodeJS.Timeout> = new Map();
 
   /** Crea un juego nuevo desde cero (nuevo ID generado)  */
   createGame(data: CreateGameData, creatorId: string): Game {
@@ -126,7 +125,6 @@ class GameStore {
     game.currentQuestionIndex = 0;
     game.currentQuestionStartTime = Date.now();
 
-    this.setQuestionTimeout(gameId);
     return true;
   }
 
@@ -134,12 +132,9 @@ class GameStore {
     const game = this.games.get(gameId);
     if (!game) return false;
 
-    this.clearQuestionTimeout(gameId);
-
     if (game.currentQuestionIndex + 1 < game.questions.length) {
       game.currentQuestionIndex += 1;
       game.currentQuestionStartTime = Date.now();
-      this.setQuestionTimeout(gameId);
       return true;
     } else {
       this.finishGame(gameId);
@@ -151,7 +146,6 @@ class GameStore {
     const game = this.games.get(gameId);
     if (!game) return false;
 
-    this.clearQuestionTimeout(gameId);
     game.currentQuestionStartTime = 0;
     return true;
   }
@@ -160,29 +154,8 @@ class GameStore {
     const game = this.games.get(gameId);
     if (!game) return false;
 
-    this.clearQuestionTimeout(gameId);
     game.status = "finished";
     return true;
-  }
-
-  private setQuestionTimeout(gameId: string) {
-    const game = this.games.get(gameId);
-    if (!game) return;
-
-    const timeout = setTimeout(() => {
-      this.finishCurrentQuestion(gameId);
-      // Emit se hace desde el handler
-    }, game.questionTimeLimit);
-
-    this.questionTimeouts.set(gameId, timeout);
-  }
-
-  private clearQuestionTimeout(gameId: string) {
-    const existing = this.questionTimeouts.get(gameId);
-    if (existing) {
-      clearTimeout(existing);
-      this.questionTimeouts.delete(gameId);
-    }
   }
 
   getGameResults(gameId: string) {

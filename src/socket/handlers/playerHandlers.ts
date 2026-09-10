@@ -77,7 +77,24 @@ export default async function onJoinGame(
       joinedAt: new Date(),
     };
   } else if (playerId) {
-    player = (gameDoc.players as Player[]).find((p) => p.id === playerId);
+    const dbPlayer = (gameDoc.players as any[]).find((p: any) => p.id === playerId);
+    if (dbPlayer) {
+      // Convert Mongoose Map to plain object
+      const plainAnswers: Record<string, number> = {};
+      if (dbPlayer.answers instanceof Map) {
+        for (const [k, v] of dbPlayer.answers) plainAnswers[k] = v;
+      } else if (dbPlayer.answers && typeof dbPlayer.answers === "object") {
+        Object.assign(plainAnswers, dbPlayer.answers);
+      }
+      player = {
+        id: dbPlayer.id,
+        name: dbPlayer.name,
+        gameId,
+        answers: plainAnswers,
+        score: dbPlayer.score || 0,
+        joinedAt: dbPlayer.joinedAt,
+      };
+    }
   }
 
   if (!player) {
@@ -104,6 +121,16 @@ export default async function onJoinGame(
       correctAnswer: q.correctAnswer,
     }));
 
+    const plainPlayers: Player[] = playersInDb.map((p: any) => {
+      const plainAnswers: Record<string, number> = {};
+      if (p.answers instanceof Map) {
+        for (const [k, v] of p.answers) plainAnswers[k] = v;
+      } else if (p.answers && typeof p.answers === "object") {
+        Object.assign(plainAnswers, p.answers);
+      }
+      return { id: p.id, name: p.name, gameId, answers: plainAnswers, score: p.score || 0, joinedAt: p.joinedAt };
+    });
+
     const newGame: Game = {
       id: gameDoc._id.toString(),
       name: gameDoc.name,
@@ -114,7 +141,7 @@ export default async function onJoinGame(
       currentQuestionStartTime: gameDoc.currentQuestionStartTime || 0,
       questionTimeLimit: gameDoc.questionTimeLimit || 30000,
       createdAt: gameDoc.createdAt,
-      players: [...playersInDb],
+      players: plainPlayers,
     };
 
     gameStore.addGameFromDb(newGame);

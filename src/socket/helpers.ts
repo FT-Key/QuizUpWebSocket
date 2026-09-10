@@ -18,14 +18,23 @@ export async function buildGame(gameDoc: GameDoc): Promise<GameType> {
       })
     ),
     players: (gameDoc.players || []).map(
-      (p): Player => ({
-        id: p.id,
-        name: p.name,
-        gameId: gameDoc._id.toString(),
-        answers: p.answers,
-        score: p.score,
-        joinedAt: p.joinedAt,
-      })
+      (p): Player => {
+        const plainAnswers: Record<string, number> = {};
+        const raw = (p as any).answers;
+        if (raw instanceof Map) {
+          for (const [k, v] of raw) plainAnswers[k] = v;
+        } else if (raw && typeof raw === "object") {
+          Object.assign(plainAnswers, raw);
+        }
+        return {
+          id: p.id,
+          name: p.name,
+          gameId: gameDoc._id.toString(),
+          answers: plainAnswers,
+          score: p.score,
+          joinedAt: p.joinedAt,
+        };
+      }
     ),
     createdAt: gameDoc.createdAt,
     creatorId: gameDoc.creatorId,

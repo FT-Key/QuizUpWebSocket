@@ -133,7 +133,7 @@ export interface ServerToClientEvents {
     answer: number;
   }) => void;
 
-  "game-finished": (data: { results: any }) => void;
+  "game-finished": (data: { game: Game; results: any }) => void;
 
   "game-state": (data: {
     game: Game;

@@ -8,6 +8,7 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "sourceMap": true,
+    "rootDir": "src",
     "outDir": "dist",
     "declaration": true,
     "types": ["node"]

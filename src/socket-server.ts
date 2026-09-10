@@ -70,16 +70,63 @@ io.on("connection", (socket: Socket<SocketEvents, SocketEvents>) => {
     }
   });
 
-  // submit answer — solo registra, NO termina la pregunta aunque todos hayan respondido
+  // submit answer — registra la respuesta y notifica a jugadores y admins
   socket.on("submit-answer", (payload) => {
-    console.log("[socket-server] submit-answer from", socket.id, payload.playerId, "q:", payload.questionId, "ans:", payload.answer);
+    console.log(`[socket-server] ─── submit-answer START ───`);
+    console.log(`[socket-server]   socket: ${socket.id}, player: ${payload.playerId}, q: ${payload.questionId}, ans: ${payload.answer}`);
+
     const result = gameStore.submitAnswer(payload.playerId, payload.questionId, payload.answer);
     if (!result) {
-      console.warn("[socket-server] submitAnswer returned false — player not found?", payload.playerId);
-    } else {
-      console.log("[socket-server] answer registered, finishedQuestion:", result.finishedQuestion);
+      console.warn(`[socket-server]   submitAnswer FAILED — player not found?`);
+      console.log(`[socket-server] ─── submit-answer END (failed) ───`);
+      return;
     }
-    // No emitir question-finished aquí — el timer del servidor es la única fuente de verdad
+
+    console.log(`[socket-server]   submitAnswer OK, finishedQuestion: ${result.finishedQuestion}`);
+
+    // Notify the player that their answer was received
+    socket.emit("answer-submitted", {
+      playerId: payload.playerId,
+      questionId: payload.questionId,
+      answer: payload.answer,
+    });
+    console.log(`[socket-server]   emitted answer-submitted to player ${socket.id}`);
+
+    // Find the game containing this player
+    let foundGame: any = null;
+    for (const g of gameStore.getAllGames()) {
+      if (g.players.find((p) => p.id === payload.playerId)) {
+        foundGame = g;
+        break;
+      }
+    }
+
+    if (!foundGame) {
+      console.warn(`[socket-server]   game not found for player ${payload.playerId}`);
+      console.log(`[socket-server] ─── submit-answer END (no game) ───`);
+      return;
+    }
+
+    console.log(`[socket-server]   found game: ${foundGame.id}, status: ${foundGame.status}, players: ${foundGame.players.length}`);
+
+    // Log each player's answers for debugging
+    for (const p of foundGame.players) {
+      console.log(`[socket-server]   player ${p.name} (${p.id}): answers=${JSON.stringify(p.answers)}, score=${p.score}`);
+    }
+
+    // Emit game-updated to BOTH players and admins so everyone sees the latest state
+    io.to(`game-${foundGame.id}`).emit("game-updated", { game: foundGame });
+    io.to(`game-${foundGame.id}-admins`).emit("game-updated", { game: foundGame });
+    console.log(`[socket-server]   emitted game-updated to game-${foundGame.id} (players) and game-${foundGame.id}-admins`);
+
+    // If all players answered, emit question-finished so clients transition to result state
+    if (result.finishedQuestion) {
+      io.to(`game-${foundGame.id}`).emit("question-finished", { currentQuestionIndex: foundGame.currentQuestionIndex });
+      io.to(`game-${foundGame.id}-admins`).emit("question-finished", { currentQuestionIndex: foundGame.currentQuestionIndex });
+      console.log(`[socket-server]   emitted question-finished (all answered) for game ${foundGame.id}`);
+    }
+
+    console.log(`[socket-server] ─── submit-answer END ───`);
   });
 
   // leave player
