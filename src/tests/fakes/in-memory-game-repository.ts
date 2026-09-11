@@ -8,12 +8,25 @@ import type { GameRepository } from "../../core/application/ports/game-repositor
  * Devuelve copias defensivas (`structuredClone`) para que los tests no
  * compartan referencias mutables con el estado interno del repositorio.
  */
-export function createInMemoryGameRepository(): GameRepository {
+export interface InMemoryGameRepository extends GameRepository {
+  /**
+   * Extensión de test (no es parte del puerto): siembra una partida en el
+   * store, equivalente al `GameModel.create` que usa la suite de contrato para
+   * Mongo. `save` es update-only y no crea.
+   */
+  seed(game: Game): void;
+}
+
+export function createInMemoryGameRepository(): InMemoryGameRepository {
   const games = new Map<string, Game>();
 
   const cloneGame = (game: Game): Game => structuredClone(game);
 
   return {
+    seed(game) {
+      games.set(game.id, cloneGame(game));
+    },
+
     async findById(gameId) {
       const game = games.get(gameId);
       return game ? cloneGame(game) : null;
@@ -29,6 +42,8 @@ export function createInMemoryGameRepository(): GameRepository {
     },
 
     async save(game) {
+      // Update-only: el WS no crea partidas; si no existe, no-op (paridad legacy).
+      if (!games.has(game.id)) return;
       games.set(game.id, cloneGame(game));
     },
 

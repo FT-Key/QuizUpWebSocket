@@ -2,35 +2,47 @@
  * Suite de contrato compartida de `GameRepository` (US-05).
  *
  * El fake en memoria corre siempre; la variante Mongo queda `skip` sin
- * `MONGODB_URI_TEST` (D4: nunca se usa `MONGODB_URI` real en tests). El bloque
- * Mongo siembra documentos con el modelo canónico porque `save` (igual que el
- * legacy) actualiza partidas existentes: no crea documentos desde el WS.
+ * `MONGODB_URI_TEST` (D4: nunca se usa `MONGODB_URI` real en tests). Como `save`
+ * es update-only (no crea), cada variante siembra con su mecanismo: el fake con
+ * `seed()` y Mongo con `GameModel.create`.
+ *
+ * La variante Mongo recibe además `verifySaved`: el caso `save` comprueba el
+ * contrato vía `findById` (que puede resolver de caché) y, con el hook, la
+ * **escritura real** en `GameModel.findOne`.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import mongoose from "mongoose";
 import type { Game } from "../../core/domain/game.js";
 import type { GameRepository } from "../../core/application/ports/game-repository.js";
+import type { GameDoc } from "../../types/db.js";
 import { connectToMongo } from "../../adapters/persistence/mongo/connection.js";
-import { createMongoGameRepository } from "../../adapters/persistence/mongo/game-repository.mongo.js";
+import {
+  createMongoGameRepository,
+  type MongoGameRepository,
+} from "../../adapters/persistence/mongo/game-repository.mongo.js";
 import { GameModel } from "../../adapters/persistence/mongo/game.schema.js";
-import { createInMemoryGameRepository } from "../fakes/in-memory-game-repository.js";
+import { answersToRecord } from "../../adapters/persistence/mongo/game.mapper.js";
+import {
+  createInMemoryGameRepository,
+  type InMemoryGameRepository,
+} from "../fakes/in-memory-game-repository.js";
 import { GameBuilder } from "../builders/game-builder.js";
 import { PlayerBuilder } from "../builders/player-builder.js";
 
-type CreateRepo = () => Promise<GameRepository> | GameRepository;
-type SeedGame = (repo: GameRepository, game: Game) => Promise<void>;
+type VerifySaved = (game: Game) => Promise<void>;
 
 const GAME_CODE_PREFIX = "ws05";
 
-function repositoryContractTests(
+function repositoryContractTests<TRepo extends GameRepository>(
   label: string,
-  createRepo: CreateRepo,
-  seedGame: SeedGame
+  createRepo: () => Promise<TRepo> | TRepo,
+  seedGame: (repo: TRepo, game: Game) => Promise<void>,
+  verifySaved?: VerifySaved
 ): void {
   describe(`GameRepository contract — ${label}`, () => {
     const runId = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
     let sequence = 0;
-    let repo: GameRepository;
+    let repo: TRepo;
 
     const nextCode = () => `${GAME_CODE_PREFIX}-${label}-${runId}-${++sequence}`;
 
@@ -81,6 +93,10 @@ function repositoryContractTests(
       expect(found!.players[0].id).toBe(`${code}-p1`);
       expect(found!.players[0].answers).toEqual({ "q-1": 1 });
       expect(found!.players[0].score).toBe(2001);
+
+      // Solo la variante Mongo: `findById` puede resolver de la caché que `save`
+      // refresca, así que se verifica además la escritura real en la DB.
+      if (verifySaved) await verifySaved(updated);
     });
 
     it("persistPlayers persiste answers y score de ambos jugadores sin pisarse", async () => {
@@ -175,11 +191,11 @@ function repositoryContractTests(
   });
 }
 
-async function seedWithRepository(repo: GameRepository, game: Game): Promise<void> {
-  await repo.save(game);
+async function seedInMemoryGame(repo: InMemoryGameRepository, game: Game): Promise<void> {
+  repo.seed(game);
 }
 
-async function seedMongoGame(_repo: GameRepository, game: Game): Promise<void> {
+async function seedMongoGame(_repo: MongoGameRepository, game: Game): Promise<void> {
   await GameModel.create({
     name: game.name,
     gameCode: game.id,
@@ -208,8 +224,33 @@ async function seedMongoGame(_repo: GameRepository, game: Game): Promise<void> {
   });
 }
 
+/**
+ * Verificación exclusiva de Mongo: lee la partida directo de la DB (`.lean()`)
+ * y comprueba la escritura real de `save`, sin pasar por la caché.
+ */
+async function verifyMongoSaved(game: Game): Promise<void> {
+  const doc = await GameModel.findOne({ gameCode: game.id }).lean<GameDoc | null>();
+  expect(doc).not.toBeNull();
+
+  expect(doc!.name).toBe(game.name);
+  expect(doc!.status).toBe(game.status);
+  expect(doc!.currentQuestionIndex).toBe(game.currentQuestionIndex);
+  expect(doc!.currentQuestionStartTime).toBe(game.currentQuestionStartTime);
+  expect(doc!.questionTimeLimit).toBe(game.questionTimeLimit);
+  expect(doc!.locked).toBe(game.locked ?? false);
+  expect(doc!.players).toHaveLength(game.players.length);
+
+  game.players.forEach((player, index) => {
+    const persisted = doc!.players[index];
+    expect(persisted.id).toBe(player.id);
+    expect(persisted.gameId).toBe(game.id);
+    expect(answersToRecord(persisted.answers)).toEqual(player.answers);
+    expect(persisted.score).toBe(player.score);
+  });
+}
+
 describe("InMemoryGameRepository", () => {
-  repositoryContractTests("in-memory", createInMemoryGameRepository, seedWithRepository);
+  repositoryContractTests("in-memory", createInMemoryGameRepository, seedInMemoryGame);
 });
 
 describe.skipIf(!process.env.MONGODB_URI_TEST)("MongoGameRepository", () => {
@@ -222,5 +263,5 @@ describe.skipIf(!process.env.MONGODB_URI_TEST)("MongoGameRepository", () => {
     await mongoose.disconnect();
   });
 
-  repositoryContractTests("mongo", createMongoGameRepository, seedMongoGame);
+  repositoryContractTests("mongo", createMongoGameRepository, seedMongoGame, verifyMongoSaved);
 });

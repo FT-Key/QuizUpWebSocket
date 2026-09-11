@@ -195,7 +195,8 @@ describe("toPersistence", () => {
     .withLocked(true)
     .withPlayers(
       new PlayerBuilder().withId("p-1").withGameId("654321").withAnswers({ "q-1": 1 }).withScore(2001).build(),
-      new PlayerBuilder().withId("p-2").withGameId("654321").withAnswers({ "q-1": 0 }).withScore(0).build()
+      // p-2 lleva un gameId ajeno a propósito: `toPersistence` debe sellarlo con game.id.
+      new PlayerBuilder().withId("p-2").withGameId("otro-game").withAnswers({ "q-1": 0 }).withScore(0).build()
     )
     .build();
 
@@ -234,7 +235,7 @@ describe("toPersistence", () => {
     }
   });
 
-  it("conserva answers y score de cada jugador", () => {
+  it("sella gameId con el id del juego y conserva answers y score de cada jugador", () => {
     const persistence = toPersistence(game);
 
     expect(persistence.players[0]).toMatchObject({
@@ -243,6 +244,7 @@ describe("toPersistence", () => {
       answers: { "q-1": 1 },
       score: 2001,
     });
+    // p-2 venía con gameId "otro-game": el mapper lo sella con el id de la partida.
     expect(persistence.players[1]).toMatchObject({
       id: "p-2",
       gameId: "654321",

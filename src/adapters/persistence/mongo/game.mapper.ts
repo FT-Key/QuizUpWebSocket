@@ -84,7 +84,8 @@ export function toDomain(doc: GameDoc): Game {
  * No incluye `questions` ni `createdAt` ni `creatorId`: durante la partida no
  * cambian y sus `_id`/fechas no deben reescribirse. `answers` sale como objeto
  * plano (mismo shape que el `$set` del `bulkWrite` legacy); Mongoose lo castea
- * a Map al escribir.
+ * a Map al escribir. `players[].gameId` se sella con `game.id` (el `gameCode`
+ * es la fuente de verdad, igual que hace `toDomain`).
  */
 export function toPersistence(game: Game): GamePersistence {
   return {
@@ -98,7 +99,7 @@ export function toPersistence(game: Game): GamePersistence {
     players: game.players.map((p) => ({
       id: p.id,
       name: p.name,
-      gameId: p.gameId,
+      gameId: game.id,
       answers: answersToRecord(p.answers),
       score: p.score,
       joinedAt: p.joinedAt,

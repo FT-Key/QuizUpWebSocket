@@ -11,6 +11,11 @@ import type { GameDoc } from "../../../types/db.js";
  * Los handlers legacy cachean en `gameStore`; este adaptador encapsula la caché
  * en memoria de la partida (paridad con `addGameFromDb`/`getGame`) sin
  * contaminar el puerto de `core`. Nadie lo cablea al runtime todavía (US-06/07).
+ *
+ * Aliasing: la caché guarda **referencias vivas** del dominio, así que
+ * `findById`/`findByPlayerId` pueden devolverlas tal cual (el fake en memoria,
+ * en cambio, clona). El aliasing no es contrato: tras mutar hay que llamar a
+ * `save`/`persistPlayers` para persistir.
  */
 export interface MongoGameRepository extends GameRepository {
   cacheGame(game: Game): void;
@@ -35,6 +40,8 @@ export function createMongoGameRepository(): MongoGameRepository {
     },
 
     async findById(gameId) {
+      // Cache-first: si no está, carga de Mongo y cachea. En hit devuelve la
+      // referencia viva de la caché (mutarla no persiste: usar `save`).
       const cached = cache.get(gameId);
       if (cached) return cached;
 
@@ -47,6 +54,8 @@ export function createMongoGameRepository(): MongoGameRepository {
     },
 
     async findByPlayerId(playerId) {
+      // Escaneo de caché (paridad con `submitAnswer`); si no está, consulta
+      // Mongo por `players.id`, cachea el resultado y lo devuelve.
       for (const game of cache.values()) {
         if (game.players.some((p) => p.id === playerId)) {
           return game;
@@ -62,9 +71,16 @@ export function createMongoGameRepository(): MongoGameRepository {
     },
 
     async save(game) {
-      // `$set` solo con campos mutables: no reescribe questions/_id/createdAt/creatorId.
-      await GameModel.findOneAndUpdate({ gameCode: game.id }, { $set: toPersistence(game) });
-      cache.set(game.id, game);
+      // Update-only (sin upsert): `$set` solo con campos mutables, no reescribe
+      // questions/_id/createdAt/creatorId. Si la partida no existe, no-op: no se
+      // cachea para no crear un "fantasma" (paridad con el fake). Si existe,
+      // refresca la caché con el agregado recibido.
+      const updated = await GameModel.findOneAndUpdate(
+        { gameCode: game.id },
+        { $set: toPersistence(game) }
+      );
+
+      if (updated) cache.set(game.id, game);
     },
 
     async persistPlayers(gameId, players) {
