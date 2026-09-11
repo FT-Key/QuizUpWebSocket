@@ -1,56 +1,12 @@
 import { Game as GameModel } from "../models/Game.js";
-import type { Game as GameType, Question, Player } from "../types/types.js";
 import type { GameDoc } from "../types/db.js";
-import { DEFAULT_TIME_LIMIT_MS } from "../constants/game.js";
-
-export async function buildGame(gameDoc: GameDoc): Promise<GameType> {
-  return {
-    id: gameDoc.gameCode,
-    name: gameDoc.name,
-    status: gameDoc.status as GameType["status"],
-    questions: (gameDoc.questions || []).map(
-      (q): Question => ({
-        id: q._id?.toString() || "",
-        text: q.text,
-        options: q.options as [string, string, string, string],
-        correctAnswer: q.correctAnswer,
-        image: q.image ?? null,
-      })
-    ),
-    players: (gameDoc.players || []).map(
-      (p): Player => {
-        const plainAnswers: Record<string, number> = {};
-        const raw = (p as any).answers;
-        if (raw instanceof Map) {
-          for (const [k, v] of raw) plainAnswers[k] = v;
-        } else if (raw && typeof raw === "object") {
-          Object.assign(plainAnswers, raw);
-        }
-        return {
-          id: p.id,
-          name: p.name,
-          gameId: gameDoc.gameCode,
-          answers: plainAnswers,
-          score: p.score,
-          joinedAt: p.joinedAt,
-          avatar: (p as any).avatar ?? undefined,
-        };
-      }
-    ),
-    createdAt: gameDoc.createdAt,
-    creatorId: gameDoc.creatorId,
-    currentQuestionIndex: gameDoc.currentQuestionIndex,
-    currentQuestionStartTime: gameDoc.currentQuestionStartTime ?? 0,
-    questionTimeLimit: gameDoc.questionTimeLimit || DEFAULT_TIME_LIMIT_MS,
-    locked: gameDoc.locked ?? false,
-  };
-}
+import { toDomain } from "../adapters/persistence/mongo/game.mapper.js";
 
 export async function emitGameUpdate(io: any, gameId: string) {
   const doc = await GameModel.findOne({ gameCode: gameId }).lean<GameDoc>();
   if (!doc) return;
 
-  const game = await buildGame(doc);
+  const game = toDomain(doc);
 
   io.to(`game-${gameId}-admins`).emit("game-updated", { game });
   io.to(`game-${gameId}`).emit("game-updated", { game });
@@ -58,6 +14,6 @@ export async function emitGameUpdate(io: any, gameId: string) {
 
 export async function emitDashboard(io: any) {
   const docs = await GameModel.find().sort({ createdAt: -1 }).lean<GameDoc[]>();
-  const games = await Promise.all(docs.map(buildGame));
+  const games = docs.map(toDomain);
   io.emit("update-dashboard", games);
 }
