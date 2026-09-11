@@ -29,6 +29,17 @@ describe("socket-payloads — join-game", () => {
     ).toBe(true);
   });
 
+  it("acepta playerId null (primer join: localStorage devuelve null) como ausente", () => {
+    expect(
+      joinGameSchema.safeParse({
+        gameId: "123456",
+        playerId: null,
+        playerName: "Ana",
+        avatar: { seed: "ana", accessories: ["hat"] },
+      }).success
+    ).toBe(true);
+  });
+
   it("rechaza payload sin gameId o con tipos incorrectos", () => {
     expect(joinGameSchema.safeParse({}).success).toBe(false);
     expect(joinGameSchema.safeParse({ gameId: 123456 }).success).toBe(false);
@@ -111,10 +122,11 @@ describe("socket-payloads — lock-game", () => {
 });
 
 describe("socket-payloads — request-dashboard", () => {
-  it("acepta undefined (sin payload) y rechaza cualquier valor", () => {
+  it("acepta undefined y null (Socket.IO serializa undefined como null) y rechaza otros valores", () => {
     expect(noPayloadSchema.safeParse(undefined).success).toBe(true);
+    expect(noPayloadSchema.safeParse(null).success).toBe(true);
     expect(requestDashboardSchema.safeParse(undefined).success).toBe(true);
+    expect(requestDashboardSchema.safeParse(null).success).toBe(true);
     expect(noPayloadSchema.safeParse({}).success).toBe(false);
-    expect(noPayloadSchema.safeParse(null).success).toBe(false);
   });
 });

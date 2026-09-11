@@ -14,8 +14,9 @@ export interface CloseGameDeps {
 
 /**
  * `close-game`: cancela una partida `waiting`, emite `game-cancelled` a sala +
- * admins y refresca el dashboard. Paridad con `adminHandlers` (no-op si no
- * existe o no está `waiting`).
+ * admins y refresca el dashboard. Paridad con `adminHandlers.ts:30-52`: si la
+ * partida no existe, igualmente se emite `update-dashboard` (allí queda fuera
+ * del `if (game)`); sin emisiones de sala/socket.
  */
 export function createCloseGameUseCase(deps: CloseGameDeps): UseCase<CloseGameInput, void> {
   const { repo, gateway } = deps;
@@ -23,7 +24,10 @@ export function createCloseGameUseCase(deps: CloseGameDeps): UseCase<CloseGameIn
   return {
     async execute({ gameId }) {
       const game = await repo.findById(gameId);
-      if (!game) return;
+      if (!game) {
+        gateway.broadcast("update-dashboard", await repo.listAll());
+        return;
+      }
       if (!cancel(game)) return;
 
       await repo.save(game);

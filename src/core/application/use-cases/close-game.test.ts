@@ -31,6 +31,18 @@ describe("CloseGame", () => {
     expect(cancelled.game.status).toBe("cancelled");
   });
 
+  it("partida inexistente: emite update-dashboard (paridad legacy), sin game-cancelled", async () => {
+    const { repo, gateway, useCase } = setup();
+    repo.seed(new GameBuilder().withId("999999").build());
+
+    await useCase.execute({ gameId: GAME_ID });
+
+    expect(gateway.emissions.map((e) => `${e.kind}:${e.event}`)).toEqual([
+      "broadcast:update-dashboard",
+    ]);
+    expect((gateway.emissions[0].payload as Game[]).map((g) => g.id)).toEqual(["999999"]);
+  });
+
   it("partida no waiting: no-op (guard de cancel)", async () => {
     const { repo, gateway, useCase } = setup();
     repo.seed(new GameBuilder().withId(GAME_ID).withStatus("active").build());

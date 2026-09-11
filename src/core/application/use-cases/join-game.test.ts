@@ -104,6 +104,21 @@ describe("JoinGame — alta de jugador nuevo", () => {
     expect(saved!.players[0].avatar).toEqual({ seed: "Ana" });
   });
 
+  it("trata playerId null como alta nueva (el cliente lo emite en el primer join, sin join-error)", async () => {
+    const { repo, gateway, useCase } = setup();
+    repo.seed(waitingGame());
+
+    const result = await useCase.execute({
+      gameId: GAME_ID,
+      playerId: null,
+      playerName: "Ana",
+      socketId: "s-1",
+    });
+
+    expect(result.player).toMatchObject({ id: "player-1", name: "Ana", gameId: GAME_ID });
+    expect(gateway.emissions.some((e) => e.event === "join-error")).toBe(false);
+  });
+
   it("acepta avatar explícito del cliente", async () => {
     const { repo, useCase } = setup();
     repo.seed(waitingGame());
@@ -240,7 +255,7 @@ describe("JoinGame — reconexión por playerId", () => {
     };
   }
 
-  it("devuelve el jugador existente sin duplicarlo y con timeLeft recortado a 0", async () => {
+  it("devuelve el jugador existente sin duplicarlo con timeLeft 19496 (20000 - 504, sin recorte)", async () => {
     const { repo, gateway, useCase } = setup();
     const { game } = activeGameWithPlayer();
     repo.seed(game);
@@ -260,6 +275,26 @@ describe("JoinGame — reconexión por playerId", () => {
     expect((emissionOf(gateway, "admins", "game-state").payload as { timeLeft: number }).timeLeft).toBe(
       19496
     );
+  });
+
+  it("CARACTERIZACIÓN: pregunta vencida en join ⇒ timeLeft negativo (legacy no clampea a 0)", async () => {
+    const { repo, gateway, useCase } = setup();
+    const player = new PlayerBuilder().withId("p-1").withName("Ana").withGameId(GAME_ID).build();
+    repo.seed(
+      new GameBuilder()
+        .withId(GAME_ID)
+        .withStatus("active")
+        .withCurrentQuestionStartTime(BASE_TIME - 25_000)
+        .withQuestions(QUESTION)
+        .withPlayers(player)
+        .build()
+    );
+
+    await useCase.execute({ gameId: GAME_ID, playerId: "p-1", socketId: "s-2" });
+
+    expect(
+      (emissionOf(gateway, "admins", "game-state").payload as { timeLeft: number }).timeLeft
+    ).toBe(-5000);
   });
 
   it("actualiza el avatar cuando el cliente manda uno distinto y lo persiste", async () => {

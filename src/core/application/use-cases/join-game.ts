@@ -11,7 +11,8 @@ import type { UseCase } from "./use-case.js";
 
 export interface JoinGameInput {
   gameId: string;
-  playerId?: string;
+  /** `null` (el cliente lo emite en el primer join) equivale a ausente: alta nueva. */
+  playerId?: string | null;
   playerName?: string;
   avatar?: PlayerAvatar;
   socketId: string;
@@ -127,12 +128,11 @@ export function createJoinGameUseCase(deps: JoinGameDeps): JoinGameUseCase {
         game,
         currentQuestion: game.questions[currentQuestionIndex] ?? null,
         currentQuestionIndex,
+        // Paridad `playerHandlers.ts:185-189`: en join NO se clampea a 0
+        // (puede llegar negativo si la pregunta ya venció).
         timeLeft:
           game.currentQuestionStartTime > 0
-            ? Math.max(
-                0,
-                game.questionTimeLimit - (clock.now() - game.currentQuestionStartTime)
-              )
+            ? game.questionTimeLimit - (clock.now() - game.currentQuestionStartTime)
             : game.questionTimeLimit,
       });
 

@@ -13,7 +13,9 @@ export const playerAvatarPayload = z.object({
 
 export const joinGameSchema = z.object({
   gameId: z.string(),
-  playerId: z.string().optional(),
+  // `nullish`: el cliente emite `playerId: null` en el primer join
+  // (`localStorage.getItem("playerId")` → null). Null = ausente = alta nueva.
+  playerId: z.string().nullish(),
   playerName: z.string().optional(),
   avatar: playerAvatarPayload.optional(),
 });
@@ -48,8 +50,12 @@ export const lockGameSchema = z.object({
   locked: z.boolean(),
 });
 
-/** `request-dashboard` no lleva payload. */
-export const noPayloadSchema = z.undefined();
+/**
+ * `request-dashboard` no lleva payload. El helper `emit(event, data?)` del
+ * cliente siempre pasa un segundo argumento (`socket.emit(event, undefined)`),
+ * que Socket.IO serializa como `null`; se toleran ambos.
+ */
+export const noPayloadSchema = z.union([z.undefined(), z.null()]);
 export const requestDashboardSchema = noPayloadSchema;
 
 export type PlayerAvatarPayload = z.infer<typeof playerAvatarPayload>;

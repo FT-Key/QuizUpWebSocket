@@ -39,11 +39,16 @@ describe("LeaveGame", () => {
     expect(saved!.players.map((p) => p.id)).toEqual(["p-2"]);
   });
 
-  it("partida inexistente: no-op sin emisiones", async () => {
-    const { gateway, useCase } = setup();
+  it("partida inexistente: solo update-dashboard (paridad legacy), sin emisiones de sala/socket", async () => {
+    const { repo, gateway, useCase } = setup();
+    repo.seed(new GameBuilder().withId("999999").build());
 
     await useCase.execute({ gameId: GAME_ID, playerId: "p-1", socketId: "s-1" });
 
-    expect(gateway.emissions).toEqual([]);
+    expect(
+      gateway.emissions.map((e) => (e.event ? `${e.kind}:${e.event}` : e.kind))
+    ).toEqual(["broadcast:update-dashboard"]);
+    const dashboard = gateway.emissions[0].payload as Game[];
+    expect(dashboard.map((g) => g.id)).toEqual(["999999"]);
   });
 });

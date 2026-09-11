@@ -130,6 +130,30 @@ describe("SubmitAnswer — scoring (espejo de gameStore.test)", () => {
     expect(result!.player.answers["q-1"]).toBe(0);
     expect(result!.finishedQuestion).toBe(true);
   });
+
+  it("CARACTERIZACIÓN: submit sin startGame (waiting, startTime 0) registra y suma 1 sin bonus", async () => {
+    // Espejo de gameStore.test.ts:146-158: no hay guard de status ni de
+    // currentQuestionStartTime === 0; remaining negativo ⇒ solo el punto base.
+    const { repo, useCase } = setup();
+    repo.seed(
+      new GameBuilder()
+        .withId(GAME_ID)
+        .withStatus("waiting")
+        .withQuestionTimeLimit(20000)
+        .withCurrentQuestionStartTime(0)
+        .withQuestions(QUESTION)
+        .withPlayers(makePlayer("p-1", "Ana"))
+        .build()
+    );
+
+    const result = await useCase.execute(submit("p-1", 1));
+
+    expect(result).not.toBeNull();
+    expect(result!.finishedQuestion).toBe(true);
+    expect(result!.game.status).toBe("waiting");
+    expect(result!.player.answers["q-1"]).toBe(1);
+    expect(result!.player.score).toBe(1);
+  });
 });
 
 describe("SubmitAnswer — allAnswered", () => {
