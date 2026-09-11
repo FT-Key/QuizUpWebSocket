@@ -20,22 +20,33 @@ import {
   createMongoGameRepository,
   type MongoGameRepository,
 } from "../../adapters/persistence/mongo/game-repository.mongo.js";
+import type { RepositoryCacheOptions } from "../../adapters/persistence/repository-cache.js";
 import { GameModel } from "../../adapters/persistence/mongo/game.schema.js";
 import { answersToRecord } from "../../adapters/persistence/mongo/game.mapper.js";
 import {
   createInMemoryGameRepository,
   type InMemoryGameRepository,
 } from "../fakes/in-memory-game-repository.js";
+import { createFixedClock } from "../fakes/fixed-clock.js";
 import { GameBuilder } from "../builders/game-builder.js";
 import { PlayerBuilder } from "../builders/player-builder.js";
 
 type VerifySaved = (game: Game) => Promise<void>;
 
+/**
+ * Suite de contrato de la poda (US-08): ambas variantes exponen `getCached`;
+ * solo Mongo expone `cacheGame`, que siembra la caché tras crear el doc.
+ */
+interface CacheAwareGameRepository extends GameRepository {
+  getCached(gameId: string): Game | undefined;
+  cacheGame?(game: Game): void;
+}
+
 const GAME_CODE_PREFIX = "ws05";
 
-function repositoryContractTests<TRepo extends GameRepository>(
+function repositoryContractTests<TRepo extends CacheAwareGameRepository>(
   label: string,
-  createRepo: () => Promise<TRepo> | TRepo,
+  createRepo: (options?: RepositoryCacheOptions) => Promise<TRepo> | TRepo,
   seedGame: (repo: TRepo, game: Game) => Promise<void>,
   verifySaved?: VerifySaved
 ): void {
@@ -185,8 +196,108 @@ function repositoryContractTests<TRepo extends GameRepository>(
       expect(ids).not.toContain(oldCancelled);
     });
 
-    it("prune devuelve 0 (stub de US-05)", async () => {
-      expect(await repo.prune()).toBe(0);
+    describe("prune (US-08)", () => {
+      const NOW = Date.parse("2026-06-01T00:00:00.000Z");
+      const TTL_MS = 60 * 60 * 1000;
+      const clock = createFixedClock(NOW);
+
+      const createPruneRepo = (options: RepositoryCacheOptions = {}) =>
+        createRepo({ clock, ttlMs: TTL_MS, maxCachedGames: 500, ...options });
+
+      // En Mongo `seedGame` solo crea el doc: hay que poblar además la caché.
+      const seedCached = async (target: TRepo, game: Game): Promise<void> => {
+        await seedGame(target, game);
+        target.cacheGame?.(game);
+      };
+
+      it("TTL: poda las finished vencidas y conserva las recientes", async () => {
+        const target = await createPruneRepo();
+        const expired = [nextCode(), nextCode(), nextCode()];
+        const recent = nextCode();
+
+        for (const id of expired) {
+          await seedCached(
+            target,
+            new GameBuilder()
+              .withId(id)
+              .withStatus("finished")
+              .withCreatedAt(new Date(NOW - TTL_MS - 1))
+              .build()
+          );
+        }
+        await seedCached(
+          target,
+          new GameBuilder()
+            .withId(recent)
+            .withStatus("finished")
+            .withCreatedAt(new Date(NOW - 1_000))
+            .build()
+        );
+
+        expect(await target.prune()).toBe(3);
+        for (const id of expired) {
+          expect(target.getCached(id)).toBeUndefined();
+        }
+        expect(target.getCached(recent)).toBeDefined();
+      });
+
+      it("no poda partidas active/waiting antiguas", async () => {
+        const target = await createPruneRepo();
+        const active = nextCode();
+        const waiting = nextCode();
+        const staleAt = new Date(NOW - TTL_MS - 60_000);
+
+        await seedCached(
+          target,
+          new GameBuilder().withId(active).withStatus("active").withCreatedAt(staleAt).build()
+        );
+        await seedCached(
+          target,
+          new GameBuilder().withId(waiting).withStatus("waiting").withCreatedAt(staleAt).build()
+        );
+
+        expect(await target.prune()).toBe(0);
+        expect(target.getCached(active)).toBeDefined();
+        expect(target.getCached(waiting)).toBeDefined();
+      });
+
+      it("tope: con maxCachedGames 2 evicta las finalizadas más antiguas", async () => {
+        const target = await createPruneRepo({ maxCachedGames: 2 });
+        const ids = [nextCode(), nextCode(), nextCode(), nextCode(), nextCode()];
+
+        for (const [index, id] of ids.entries()) {
+          await seedCached(
+            target,
+            new GameBuilder()
+              .withId(id)
+              .withStatus("finished")
+              .withCreatedAt(new Date(NOW - (ids.length - index) * 1_000))
+              .build()
+          );
+        }
+
+        expect(await target.prune()).toBe(3);
+        expect(target.getCached(ids[0])).toBeUndefined();
+        expect(target.getCached(ids[1])).toBeUndefined();
+        expect(target.getCached(ids[2])).toBeUndefined();
+        expect(target.getCached(ids[3])).toBeDefined();
+        expect(target.getCached(ids[4])).toBeDefined();
+      });
+
+      it("idempotencia: el segundo prune devuelve 0", async () => {
+        const target = await createPruneRepo();
+        await seedCached(
+          target,
+          new GameBuilder()
+            .withId(nextCode())
+            .withStatus("cancelled")
+            .withCreatedAt(new Date(NOW - TTL_MS - 1))
+            .build()
+        );
+
+        expect(await target.prune()).toBe(1);
+        expect(await target.prune()).toBe(0);
+      });
     });
   });
 }

@@ -1,5 +1,10 @@
 import type { Game } from "../../core/domain/game.js";
 import type { GameRepository } from "../../core/application/ports/game-repository.js";
+import {
+  pruneRepositoryCache,
+  resolveRepositoryCacheOptions,
+  type RepositoryCacheOptions,
+} from "../../adapters/persistence/repository-cache.js";
 
 /**
  * `GameRepository` en memoria (US-05): mismo contrato observable que el
@@ -15,16 +20,31 @@ export interface InMemoryGameRepository extends GameRepository {
    * Mongo. `save` es update-only y no crea.
    */
   seed(game: Game): void;
+
+  /**
+   * Extensión de test (no es parte del puerto): paralela a
+   * `MongoGameRepository.getCached`, permite verificar la poda de caché (US-08)
+   * sin depender de `findById` (que en Mongo recargaría desde la DB).
+   */
+  getCached(gameId: string): Game | undefined;
 }
 
-export function createInMemoryGameRepository(): InMemoryGameRepository {
+export function createInMemoryGameRepository(
+  options: RepositoryCacheOptions = {}
+): InMemoryGameRepository {
   const games = new Map<string, Game>();
+  const cacheOptions = resolveRepositoryCacheOptions(options);
 
   const cloneGame = (game: Game): Game => structuredClone(game);
 
   return {
     seed(game) {
       games.set(game.id, cloneGame(game));
+    },
+
+    getCached(gameId) {
+      const game = games.get(gameId);
+      return game ? cloneGame(game) : undefined;
     },
 
     async findById(gameId) {
@@ -75,8 +95,9 @@ export function createInMemoryGameRepository(): InMemoryGameRepository {
     },
 
     async prune() {
-      // Stub de US-05: la política de poda real llega en US-08.
-      return 0;
+      // Misma semántica que el adaptador Mongo (US-08): TTL + tope, nunca
+      // `waiting`/`active`. Al no haber DB, lo podado desaparece del store.
+      return pruneRepositoryCache(games, cacheOptions);
     },
   };
 }
