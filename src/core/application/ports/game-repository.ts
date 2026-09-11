@@ -1,14 +1,38 @@
 import type { Game } from "../../domain/game.js";
 import type { Player } from "../../domain/player.js";
 
+/**
+ * Persistencia del agregado `Game` (puerto de `core`, US-05).
+ *
+ * Semántica común a todas las implementaciones:
+ * - `save` es **update-only**: actualiza una partida existente y **no la crea**
+ *   (las partidas nacen en Next/REST; el WS nunca las crea, igual que el
+ *   `findOneAndUpdate` legacy sin upsert). Si la partida no existe, es no-op.
+ * - `findById`/`findByPlayerId` pueden devolver la **referencia viva** de la
+ *   caché (adaptador Mongo) o una **copia** (fake en memoria): el aliasing no
+ *   forma parte del contrato. Tras mutar el juego, los consumidores SIEMPRE
+ *   deben llamar a `save`/`persistPlayers` para persistir; nunca deben depender
+ *   de mutar la referencia devuelta.
+ */
 export interface GameRepository {
-  /** Partida por id (== gameCode). Cache-first: si no está en caché, carga de Mongo y la cachea. */
+  /**
+   * Partida por id (== gameCode). Cache-first: si no está en caché, carga de
+   * Mongo y la cachea. Mismo aliasing que el resto del puerto: persistir con
+   * `save` tras mutar.
+   */
   findById(gameId: string): Promise<Game | null>;
 
-  /** Partida que contiene al jugador (paridad con el escaneo actual de `submitAnswer`). */
+  /**
+   * Partida que contiene al jugador. Busca primero en la caché en memoria
+   * (paridad con el escaneo actual de `submitAnswer`); si no está, consulta
+   * Mongo por `players.id` y cachea el resultado. Mismo aliasing que `findById`.
+   */
   findByPlayerId(playerId: string): Promise<Game | null>;
 
-  /** Persiste el estado completo del agregado (status, locked, índices y players). */
+  /**
+   * Persiste el estado mutable del agregado (name, status, índices, locked y
+   * players). **Update-only**: si la partida no existe, no-op (sin upsert).
+   */
   save(game: Game): Promise<void>;
 
   /** Persiste solo `answers` + `score` de los jugadores (equivalente al `bulkWrite` actual). */

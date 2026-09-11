@@ -2,7 +2,8 @@ import type { Socket } from "socket.io";
 import type { SocketEvents } from "../../types/types.js";
 import type { GameDoc } from "../../types/db.js";
 import { gameStore } from "../../gameStore.js";
-import { emitDashboard, emitGameUpdate, buildGame } from "../helpers.js";
+import { emitDashboard, emitGameUpdate } from "../helpers.js";
+import { toDomain } from "../../adapters/persistence/mongo/game.mapper.js";
 import { Game as GameModel } from "../../models/Game.js";
 import { isWaitingGameExpired } from "../../cleanupStaleGames.js";
 
@@ -76,7 +77,7 @@ export default function registerGameHandlers(io: any, socket: Socket<SocketEvent
       try {
         const doc = await GameModel.findOne({ gameCode: gameId }).lean<GameDoc | null>();
         if (!doc) { return; }
-        const built = await buildGame(doc);
+        const built = toDomain(doc);
         gameStore.addGameFromDb(built);
         game = built;
       } catch (err) {
@@ -203,7 +204,7 @@ export default function registerGameHandlers(io: any, socket: Socket<SocketEvent
       try {
         const doc = await GameModel.findOne({ gameCode: gameId }).lean<GameDoc | null>();
         if (!doc) { return; }
-        const built = await buildGame(doc);
+        const built = toDomain(doc);
         gameStore.addGameFromDb(built);
         game = built;
       } catch (err) {
