@@ -1,4 +1,5 @@
-import type { Game, Player } from "../../../types/types.js";
+import type { Game } from "../../domain/game.js";
+import type { Player } from "../../domain/player.js";
 
 export interface GameRepository {
   /** Partida por id (== gameCode). Cache-first: si no está en caché, carga de Mongo y la cachea. */
