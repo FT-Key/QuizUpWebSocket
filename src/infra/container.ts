@@ -4,6 +4,7 @@ import type { Command } from "../core/application/commands/command.js";
 import { createCommands, type UseCases } from "../core/application/commands/commands.js";
 import type { Clock } from "../core/application/ports/clock.js";
 import type { GameCleanupPolicy } from "../core/application/ports/game-cleanup-policy.js";
+import type { GameRepository } from "../core/application/ports/game-repository.js";
 import type { IdGenerator } from "../core/application/ports/id-generator.js";
 import type { Logger } from "../core/application/ports/logger.js";
 import type { RealtimeGateway } from "../core/application/ports/realtime-gateway.js";
@@ -25,27 +26,25 @@ import { createStartGameUseCase } from "../core/application/use-cases/start-game
 import { createSubmitAnswerUseCase } from "../core/application/use-cases/submit-answer.js";
 import { createSystemClock } from "../adapters/system/clock.js";
 import { createUuidGenerator } from "../adapters/system/id-generator.js";
-import {
-  createMongoGameRepository,
-  type MongoGameRepository,
-} from "../adapters/persistence/mongo/game-repository.mongo.js";
+import { createMongoGameRepository } from "../adapters/persistence/mongo/game-repository.mongo.js";
 import type { AppConfig } from "./config.js";
 import { createLogger } from "./logger.js";
 import { createNoopRealtimeGateway, createNoopTimerService } from "./stubs.js";
 
 /**
- * Composition root del proceso WS. Construye el grafo completo US-06:
- * puertos → casos de uso → commands → bus. No conecta a Mongo ni crea el
- * server (eso es bootstrap: US-07). Un container por proceso (ver skill DI).
+ * Composition root del proceso WS. Construye el grafo completo (US-06):
+ * puertos → casos de uso → commands → bus, e inyecta los adaptadores de borde
+ * que aporta el bootstrap (`deps`, US-07). No conecta a Mongo ni crea el
+ * server (eso es `main.ts`). Un container por proceso (ver skill DI).
  */
 export interface Container {
   readonly logger: Logger;
   readonly clock: Clock;
   readonly ids: IdGenerator;
-  readonly repo: MongoGameRepository;
-  /** Noop hasta US-07 (adaptador Socket.IO real). */
+  readonly repo: GameRepository;
+  /** Gateway real en `main.ts` (US-07); noop por defecto en tests. */
   readonly gateway: RealtimeGateway;
-  /** Noop hasta US-08 (TimeoutScheduler real). */
+  /** `TimeoutScheduler` real en `main.ts` (US-07); noop por defecto en tests. */
   readonly timers: TimerService;
   readonly policy: GameCleanupPolicy;
   readonly useCases: UseCases;
@@ -53,14 +52,23 @@ export interface Container {
   readonly bus: CommandBus<UseCases>;
 }
 
-export function createContainer(config: AppConfig): Container {
+/** Adaptadores de borde que el bootstrap inyecta (Socket.IO y timers reales). */
+export interface ContainerDeps {
+  /** Repositorio inyectable (tests de contrato/paridad); Mongo real por defecto. */
+  repo?: GameRepository;
+  gateway?: RealtimeGateway;
+  timers?: TimerService;
+}
+
+export function createContainer(config: AppConfig, deps: ContainerDeps = {}): Container {
   const logger = createLogger({ level: config.logLevel, context: "quizup-ws" });
   const clock = createSystemClock();
   const ids = createUuidGenerator();
-  // Construcción pura: el repo usa la conexión global de mongoose recién al invocar un método.
-  const repo = createMongoGameRepository();
-  const gateway = createNoopRealtimeGateway();
-  const timers = createNoopTimerService();
+  // Construcción pura: el repo Mongo usa la conexión global de mongoose recién
+  // al invocar un método; el bootstrap no lo sustituye.
+  const repo = deps.repo ?? createMongoGameRepository();
+  const gateway = deps.gateway ?? createNoopRealtimeGateway();
+  const timers = deps.timers ?? createNoopTimerService();
   const expiryMs = config.gameExpiryMinutes * 60_000;
   const policy = createWaitingGameExpiryPolicy(expiryMs);
   const scoring = new TimeBonusScoring();
