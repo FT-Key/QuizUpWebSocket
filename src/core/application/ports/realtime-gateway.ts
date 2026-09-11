@@ -15,4 +15,16 @@ export interface RealtimeGateway {
 
   /** Emite a todos los sockets conectados (dashboard). */
   broadcast<E extends ServerEventName>(event: E, payload: ServerEventPayload<E>): void;
+
+  /** Emite a un socket concreto (respuestas individuales: `joined`, `join-error`, `answer-submitted`, `game-state`). */
+  toSocket<E extends ServerEventName>(socketId: string, event: E, payload: ServerEventPayload<E>): void;
+
+  /** Mete al socket en la sala `game-<gameId>` (join-game). */
+  joinGameRoom(socketId: string, gameId: string): void;
+
+  /** Saca al socket de la sala `game-<gameId>` (leave-game). */
+  leaveGameRoom(socketId: string, gameId: string): void;
+
+  /** Mete al socket en la sala `game-<gameId>-admins` (join-admin). */
+  joinAdminRoom(socketId: string, gameId: string): void;
 }
