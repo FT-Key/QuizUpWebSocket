@@ -2,23 +2,22 @@ import type { Game, Player, CreateGameData } from "./types/types.js";
 declare class GameStore {
     private games;
     private players;
-    private questionTimeouts;
     createGame(data: CreateGameData, creatorId: string): Game;
+    addGameFromDb(game: Game): void;
     getGame(gameId: string): Game | undefined;
+    removePlayer(gameId: string, playerId: string): boolean;
     addPlayer(gameId: string, playerName: string): Player | null;
-    /** Registra la respuesta, calcula score y termina pregunta si todos respondieron */
     submitAnswer(playerId: string, questionId: string, answer: number): {
         finishedQuestion: boolean;
     } | false;
-    /** Comienza el juego y lanza primer timeout */
     startGame(gameId: string): boolean;
     nextQuestion(gameId: string): boolean;
-    /** Fin manual o automático de la pregunta actual */
     finishCurrentQuestion(gameId: string): boolean;
     finishGame(gameId: string): boolean;
-    private setQuestionTimeout;
-    private clearQuestionTimeout;
+    cancelGame(gameId: string): boolean;
     getGameResults(gameId: string): {
+        gameId: string;
+        createdAt: Date;
         totalPlayers: number;
         totalQuestions: number;
         leaderboard: {
@@ -26,7 +25,9 @@ declare class GameStore {
             name: string;
             score: number;
             correctAnswers: number;
+            totalQuestions: number;
             percentage: number;
+            avatar: import("./types/types.js").PlayerAvatar | undefined;
         }[];
     } | null;
     getAllGames(): Game[];
