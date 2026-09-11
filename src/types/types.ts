@@ -104,7 +104,7 @@ export interface GameResults {
 
 export interface ClientToServerEvents {
   "join-game": (data: JoinGameData) => void;
-  "join-admin": (data: { gameId: string }) => void;
+  "join-admin": (gameId: string) => void;
   "start-game": (data: { gameId: string }) => void;
   "next-question": (data: { gameId: string }) => void;
   "finish-question": (data: { gameId: string }) => void;

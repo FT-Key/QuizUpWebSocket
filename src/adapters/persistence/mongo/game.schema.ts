@@ -1,13 +1,15 @@
-import { Schema, model, models } from "mongoose";
+import mongoose from "mongoose";
+
+// `mongoose` es CJS: bajo `ts-node/esm` (runtime real) no expone named exports,
+// así que Schema/model/models se toman del default (deuda destapada por el smoke US-07).
+const { Schema, model, models } = mongoose;
 
 /**
  * Schema canónico del agregado Game (US-05).
  *
- * Es idéntico al schema legacy (`src/models/Game.ts`) más el índice compuesto
- * `{ status: 1, createdAt: 1 }` del contrato (limpieza de partidas expiradas).
- * Mientras ambos archivos convivan (hasta US-06/07), el primero en importarse
- * registra el modelo `Game` y el otro reutiliza el registro; nadie cablea este
- * adaptador al runtime todavía.
+ * Es idéntico al schema legacy (`src/models/Game.ts`, eliminado en US-07) más el
+ * índice compuesto `{ status: 1, createdAt: 1 }` del contrato (limpieza de
+ * partidas expiradas).
  */
 
 const questionImageSchema = new Schema(

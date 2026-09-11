@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GameBuilder } from "../tests/builders/game-builder.js";
+import { createInMemoryGameRepository } from "../tests/fakes/in-memory-game-repository.js";
+import { createRecordingGateway } from "../tests/fakes/recording-gateway.js";
+import { createRecordingTimerService } from "../tests/fakes/recording-timer-service.js";
 import type { AppConfig } from "./config.js";
 import { createContainer } from "./container.js";
 
@@ -128,5 +131,47 @@ describe("createContainer — grafo US-06", () => {
     expect(first.useCases.joinGame).not.toBe(second.useCases.joinGame);
     expect(first.commands).not.toBe(second.commands);
     expect(first.bus).not.toBe(second.bus);
+  });
+});
+
+describe("createContainer — overrides de adaptadores de borde (US-07)", () => {
+  it("usa el gateway y los timers inyectados por el bootstrap", () => {
+    const gateway = createRecordingGateway();
+    const timers = createRecordingTimerService();
+
+    const container = createContainer(config, { gateway, timers });
+
+    expect(container.gateway).toBe(gateway);
+    expect(container.timers).toBe(timers);
+  });
+
+  it("sin overrides construye noops silenciosos que no lanzan", () => {
+    const { gateway, timers } = createContainer(config);
+    const game = new GameBuilder().build();
+
+    expect(() => {
+      gateway.toGame("123456", "game-updated", { game });
+      gateway.toAdmins("123456", "game-updated", { game });
+      gateway.broadcast("update-dashboard", [game]);
+      gateway.toSocket("s-1", "join-error", { message: "Game not found" });
+      gateway.joinGameRoom("s-1", "123456");
+      gateway.leaveGameRoom("s-1", "123456");
+      gateway.joinAdminRoom("s-1", "123456");
+      timers.scheduleQuestionTimeout("123456", 1_000, () => {});
+      timers.clear("123456");
+      timers.clearAll();
+    }).not.toThrow();
+  });
+
+  it("usa el repositorio inyectado en lugar del adaptador Mongo (paridad sin DB)", async () => {
+    const repo = createInMemoryGameRepository();
+    repo.seed(new GameBuilder().withId("123456").build());
+
+    const container = createContainer(config, { repo });
+
+    expect(container.repo).toBe(repo);
+    await expect(container.repo.findById("123456")).resolves.toMatchObject({
+      id: "123456",
+    });
   });
 });
