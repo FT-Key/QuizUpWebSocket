@@ -1,5 +1,3 @@
-// src/gameStore.ts
-
 import type { Game, Player, CreateGameData, Question } from "./types/types.js";
 import { v4 as uuidv4 } from "uuid";
 import { DEFAULT_TIME_LIMIT_MS } from "./constants/game.js";
@@ -8,13 +6,13 @@ class GameStore {
   private games: Map<string, Game> = new Map();
   private players: Map<string, Player> = new Map();
 
-  /** Crea un juego nuevo desde cero (nuevo ID generado)  */
   createGame(data: CreateGameData, creatorId: string): Game {
     const questions: Question[] = data.questions.map((q) => ({
       id: uuidv4(),
       text: q.text,
       options: q.options,
       correctAnswer: q.correctAnswer,
+      image: q.image ?? null,
     }));
 
     const game: Game = {
@@ -34,7 +32,6 @@ class GameStore {
     return game;
   }
 
-  /** Permite registrar un juego existente cargado desde MongoDB */
   addGameFromDb(game: Game) {
     this.games.set(game.id, game);
   }
@@ -74,7 +71,6 @@ class GameStore {
     questionId: string,
     answer: number
   ): { finishedQuestion: boolean } | false {
-    // Buscar jugador en el array de players del juego (no en el Map separado)
     let player: Player | undefined;
     let game: Game | undefined;
 
@@ -92,10 +88,8 @@ class GameStore {
     const question = game.questions.find((q) => q.id === questionId);
     if (!question) return false;
 
-    // Guardar respuesta
     player.answers[questionId] = answer;
 
-    // Calcular score con bonus por tiempo
     if (answer === question.correctAnswer) {
       player.score += 1;
       const elapsed = Date.now() - game.currentQuestionStartTime;
@@ -105,7 +99,6 @@ class GameStore {
       }
     }
 
-    // Verificar si todos respondieron
     const allAnswered = game.players.every(
       (p) => p.answers[questionId] !== undefined
     );
@@ -158,6 +151,15 @@ class GameStore {
     return true;
   }
 
+  cancelGame(gameId: string): boolean {
+    const game = this.games.get(gameId);
+    if (!game) return false;
+    if (game.status !== "waiting") return false;
+
+    game.status = "cancelled";
+    return true;
+  }
+
   getGameResults(gameId: string) {
     const game = this.games.get(gameId);
     if (!game) return null;
@@ -178,6 +180,7 @@ class GameStore {
           game.questions.length > 0
             ? (correctAnswers / game.questions.length) * 100
             : 0,
+        avatar: p.avatar,
       };
     });
 

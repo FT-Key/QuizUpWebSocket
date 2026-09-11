@@ -1,15 +1,16 @@
-// src/socket/handlers/playerHandlers.ts
 import crypto from "crypto";
 import { Server, Socket } from "socket.io";
 import { Game as GameModel } from "../../models/Game.js";
 import { gameStore } from "../../gameStore.js";
 import { emitDashboard, emitGameUpdate } from "../helpers.js";
-import type { Player, Game, SocketEvents } from "../../types/types.js";
+import { isWaitingGameExpired } from "../../cleanupStaleGames.js";
+import type { Player, Game, SocketEvents, PlayerAvatar } from "../../types/types.js";
 
 interface JoinPayload {
   gameId: string;
   playerId?: string;
   playerName?: string;
+  avatar?: PlayerAvatar;
 }
 
 export async function onLeaveGame(
@@ -17,8 +18,6 @@ export async function onLeaveGame(
   socket: Socket<SocketEvents, SocketEvents>,
   { gameId, playerId }: { gameId: string; playerId: string }
 ): Promise<void> {
-  console.log("[playerHandlers] onLeaveGame", { gameId, playerId });
-
   await GameModel.findOneAndUpdate(
     { gameCode: gameId },
     { $pull: { players: { id: playerId } } }
@@ -41,14 +40,8 @@ export async function onLeaveGame(
 export default async function onJoinGame(
   io: Server<SocketEvents, SocketEvents>,
   socket: Socket<SocketEvents, SocketEvents>,
-  { gameId, playerId, playerName }: JoinPayload
+  { gameId, playerId, playerName, avatar }: JoinPayload
 ): Promise<{ player: Player; game: Game }> {
-  console.log("[playerHandlers] onJoinGame called by", socket.id, {
-    gameId,
-    playerId,
-    playerName,
-  });
-
   let gameDoc = await GameModel.findOne({ gameCode: gameId });
   if (!gameDoc) {
     socket.emit("join-error", { message: "Game not found" });
@@ -57,6 +50,35 @@ export default async function onJoinGame(
 
   let player: Player | undefined;
   if (!playerId && playerName) {
+    if (gameDoc.locked) {
+      socket.emit("join-error", { message: "El ingreso está bloqueado" });
+      throw new Error("Game entry is locked");
+    }
+    if (
+      gameDoc.status === "waiting" &&
+      isWaitingGameExpired(gameDoc.createdAt)
+    ) {
+      try {
+        await GameModel.findOneAndUpdate(
+          { gameCode: gameId, status: "waiting" },
+          { status: "cancelled" }
+        );
+      } catch (err) {
+        console.error(
+          `[playerHandlers] no se pudo cancelar la partida expirada ${gameId}:`,
+          err
+        );
+      }
+      gameStore.cancelGame(gameId);
+      socket.emit("join-error", {
+        message: "La partida fue cerrada por inactividad",
+      });
+      throw new Error("Game expired");
+    }
+    if (gameDoc.status !== "waiting") {
+      socket.emit("join-error", { message: "La partida ya comenzó" });
+      throw new Error("Game already started");
+    }
     player = {
       id: crypto.randomUUID(),
       name: playerName,
@@ -64,6 +86,7 @@ export default async function onJoinGame(
       answers: {},
       score: 0,
       joinedAt: new Date(),
+      avatar: avatar || { seed: playerName },
     };
   } else if (playerId) {
     const dbPlayer = (gameDoc.players as any[]).find((p: any) => p.id === playerId);
@@ -74,6 +97,17 @@ export default async function onJoinGame(
       } else if (dbPlayer.answers && typeof dbPlayer.answers === "object") {
         Object.assign(plainAnswers, dbPlayer.answers);
       }
+
+      const resolvedAvatar: PlayerAvatar | undefined =
+        avatar
+          ? { seed: avatar.seed || dbPlayer.avatar?.seed || dbPlayer.name, accessories: avatar.accessories?.length ? avatar.accessories : dbPlayer.avatar?.accessories }
+          : dbPlayer.avatar ?? undefined;
+
+      if (avatar && JSON.stringify(dbPlayer.avatar ?? null) !== JSON.stringify(resolvedAvatar ?? null)) {
+        dbPlayer.avatar = resolvedAvatar;
+        await gameDoc.save();
+      }
+
       player = {
         id: dbPlayer.id,
         name: dbPlayer.name,
@@ -81,6 +115,7 @@ export default async function onJoinGame(
         answers: plainAnswers,
         score: dbPlayer.score || 0,
         joinedAt: dbPlayer.joinedAt,
+        avatar: resolvedAvatar,
       };
     }
   }
@@ -104,6 +139,7 @@ export default async function onJoinGame(
       text: q.text,
       options: q.options,
       correctAnswer: q.correctAnswer,
+      image: q.image ?? null,
     }));
 
     const plainPlayers: Player[] = playersInDb.map((p: any) => {
@@ -113,7 +149,7 @@ export default async function onJoinGame(
       } else if (p.answers && typeof p.answers === "object") {
         Object.assign(plainAnswers, p.answers);
       }
-      return { id: p.id, name: p.name, gameId, answers: plainAnswers, score: p.score || 0, joinedAt: p.joinedAt };
+      return { id: p.id, name: p.name, gameId, answers: plainAnswers, score: p.score || 0, joinedAt: p.joinedAt, avatar: p.avatar ?? undefined };
     });
 
     const newGame: Game = {
@@ -166,6 +202,5 @@ export default async function onJoinGame(
   await emitGameUpdate(io, gameId);
   await emitDashboard(io);
 
-  console.log("[playerHandlers] player joined successfully:", player.id);
   return { player, game: storeGame };
 }

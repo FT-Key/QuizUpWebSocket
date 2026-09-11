@@ -1,4 +1,3 @@
-// src/socket/helpers.ts
 import { Game as GameModel } from "../models/Game.js";
 import type { Game as GameType, Question, Player } from "../types/types.js";
 import type { GameDoc } from "../types/db.js";
@@ -15,6 +14,7 @@ export async function buildGame(gameDoc: GameDoc): Promise<GameType> {
         text: q.text,
         options: q.options as [string, string, string, string],
         correctAnswer: q.correctAnswer,
+        image: q.image ?? null,
       })
     ),
     players: (gameDoc.players || []).map(
@@ -33,6 +33,7 @@ export async function buildGame(gameDoc: GameDoc): Promise<GameType> {
           answers: plainAnswers,
           score: p.score,
           joinedAt: p.joinedAt,
+          avatar: (p as any).avatar ?? undefined,
         };
       }
     ),
@@ -41,6 +42,7 @@ export async function buildGame(gameDoc: GameDoc): Promise<GameType> {
     currentQuestionIndex: gameDoc.currentQuestionIndex,
     currentQuestionStartTime: gameDoc.currentQuestionStartTime ?? 0,
     questionTimeLimit: gameDoc.questionTimeLimit || DEFAULT_TIME_LIMIT_MS,
+    locked: gameDoc.locked ?? false,
   };
 }
 
