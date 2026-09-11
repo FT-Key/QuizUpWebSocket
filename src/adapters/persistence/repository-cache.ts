@@ -60,14 +60,13 @@ export function pruneRepositoryCache(
 
   // Segunda pasada: tope, evictando las finalizadas más antiguas.
   if (cache.size > maxCachedGames) {
-    const evictable = [...cache.values()]
-      .filter((game) => PRUNABLE_STATUSES.has(game.status))
-      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    const evictable = [...cache.entries()]
+      .filter(([, game]) => PRUNABLE_STATUSES.has(game.status))
+      .sort(([, a], [, b]) => a.createdAt.getTime() - b.createdAt.getTime());
 
-    for (const game of evictable) {
+    for (const [key] of evictable) {
       if (cache.size <= maxCachedGames) break;
-      cache.delete(game.id);
-      pruned += 1;
+      if (cache.delete(key)) pruned += 1;
     }
   }
 

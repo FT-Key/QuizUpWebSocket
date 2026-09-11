@@ -8,7 +8,10 @@ import {
   createSocketServer,
 } from "./adapters/realtime/socketio/socket-server.adapter.js";
 import { createTimeoutScheduler } from "./adapters/timers/timeout-scheduler.js";
-import { createCleanupScheduler } from "./adapters/timers/cleanup-scheduler.js";
+import {
+  createCleanupScheduler,
+  DEFAULT_CLEANUP_INTERVAL_MS,
+} from "./adapters/timers/cleanup-scheduler.js";
 import { loadConfig } from "./infra/config.js";
 import { createContainer } from "./infra/container.js";
 
@@ -20,8 +23,6 @@ process.on("uncaughtException", (err) =>
 process.on("unhandledRejection", (reason) =>
   console.error("[process] unhandledRejection:", reason)
 );
-
-const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
  * Bootstrap del proceso WS: config → conexión Mongo → container (con los
@@ -47,7 +48,7 @@ async function main(): Promise<void> {
       await container.useCases.cancelStaleGames.execute();
       await container.repo.prune();
     },
-    intervalMs: CLEANUP_INTERVAL_MS,
+    intervalMs: DEFAULT_CLEANUP_INTERVAL_MS,
     onError: (error) => container.logger.error("[main] cleanup failed", error),
   });
   cleanupScheduler.start();
