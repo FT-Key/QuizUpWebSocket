@@ -8,6 +8,10 @@ import {
   createSocketServer,
 } from "./adapters/realtime/socketio/socket-server.adapter.js";
 import { createTimeoutScheduler } from "./adapters/timers/timeout-scheduler.js";
+import {
+  createCleanupScheduler,
+  DEFAULT_CLEANUP_INTERVAL_MS,
+} from "./adapters/timers/cleanup-scheduler.js";
 import { loadConfig } from "./infra/config.js";
 import { createContainer } from "./infra/container.js";
 
@@ -19,8 +23,6 @@ process.on("uncaughtException", (err) =>
 process.on("unhandledRejection", (reason) =>
   console.error("[process] unhandledRejection:", reason)
 );
-
-const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
  * Bootstrap del proceso WS: config → conexión Mongo → container (con los
@@ -39,16 +41,17 @@ async function main(): Promise<void> {
   });
   registerSocketRouter(io, container.bus, container.logger);
 
-  // Auto-cierre de partidas `waiting` (paridad legacy; US-08 lo formaliza
-  // con `CleanupScheduler`).
-  const runCleanup = (): void => {
-    void container.useCases.cancelStaleGames.execute().catch((error: unknown) => {
-      container.logger.error("[main] cleanup failed", error);
-    });
-  };
-  runCleanup();
-  const cleanupTimer = setInterval(runCleanup, CLEANUP_INTERVAL_MS);
-  cleanupTimer.unref?.();
+  // Auto-cierre de partidas `waiting` + poda de la caché (US-08). El
+  // scheduler ejecuta de inmediato y cada 5 min, con errores aislados del ciclo.
+  const cleanupScheduler = createCleanupScheduler({
+    run: async () => {
+      await container.useCases.cancelStaleGames.execute();
+      await container.repo.prune();
+    },
+    intervalMs: DEFAULT_CLEANUP_INTERVAL_MS,
+    onError: (error) => container.logger.error("[main] cleanup failed", error),
+  });
+  cleanupScheduler.start();
 
   httpServer.listen(config.port, () =>
     container.logger.info(`[main] QuizUp WS escuchando en :${config.port}`)

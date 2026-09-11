@@ -90,4 +90,20 @@ describe("CancelStaleGames", () => {
 
     expect(gateway.emissions).toEqual([]);
   });
+
+  it("una partida active antigua no se cancela (no rompe partidas en curso)", async () => {
+    const { repo, gateway, useCase } = setup();
+    repo.seed(
+      new GameBuilder()
+        .withId("active-vieja")
+        .withStatus("active")
+        .withCreatedAt(new Date(BASE_TIME - EXPIRY_MS - 1))
+        .build()
+    );
+
+    await useCase.execute();
+
+    expect(gateway.emissions).toEqual([]);
+    expect((await repo.findById("active-vieja"))!.status).toBe("active");
+  });
 });

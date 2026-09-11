@@ -4,6 +4,11 @@ import type { GameRepository } from "../../../core/application/ports/game-reposi
 import { GameModel } from "./game.schema.js";
 import { answersToRecord, toDomain, toPersistence } from "./game.mapper.js";
 import type { GameDoc } from "../../../types/db.js";
+import {
+  pruneRepositoryCache,
+  resolveRepositoryCacheOptions,
+  type RepositoryCacheOptions,
+} from "../repository-cache.js";
 
 /**
  * Puerto `GameRepository` + accesorios de caché internos del adaptador.
@@ -25,10 +30,14 @@ export interface MongoGameRepository extends GameRepository {
 /**
  * Adaptador Mongo de `GameRepository`. Construcción pura: usa la conexión
  * global de mongoose recién cuando se invoca un método. Los errores de
- * Mongoose no se capturan aquí: suben al caller.
+ * Mongoose no se capturan aquí: suben al caller. La caché aplica la política
+ * TTL/tope de `RepositoryCacheOptions` al invocar `prune()` (US-08).
  */
-export function createMongoGameRepository(): MongoGameRepository {
+export function createMongoGameRepository(
+  options: RepositoryCacheOptions = {}
+): MongoGameRepository {
   const cache = new Map<string, Game>();
+  const cacheOptions = resolveRepositoryCacheOptions(options);
 
   const repository: MongoGameRepository = {
     cacheGame(game) {
@@ -116,8 +125,9 @@ export function createMongoGameRepository(): MongoGameRepository {
     },
 
     async prune() {
-      // Stub de US-05: la política TTL/tope real llega en US-08 dentro de este adaptador.
-      return 0;
+      // Solo toca la caché en memoria: las partidas siguen en Mongo y
+      // `findById` las recarga si vuelven a consultarse.
+      return pruneRepositoryCache(cache, cacheOptions);
     },
   };
 
