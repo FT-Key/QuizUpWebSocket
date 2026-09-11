@@ -1,6 +1,7 @@
 import type { Game, Player, CreateGameData, Question } from "./types/types.js";
 import { v4 as uuidv4 } from "uuid";
 import { DEFAULT_TIME_LIMIT_MS } from "./constants/game.js";
+import { calculateResults } from "./core/domain/results/results-calculator.js";
 
 class GameStore {
   private games: Map<string, Game> = new Map();
@@ -163,34 +164,7 @@ class GameStore {
   getGameResults(gameId: string) {
     const game = this.games.get(gameId);
     if (!game) return null;
-
-    const leaderboard = game.players.map((p) => {
-      const correctAnswers = Object.keys(p.answers).filter((qId) => {
-        const question = game.questions.find((q) => q.id === qId);
-        return question && p.answers[qId] === question.correctAnswer;
-      }).length;
-
-      return {
-        playerId: p.id,
-        name: p.name,
-        score: p.score,
-        correctAnswers,
-        totalQuestions: game.questions.length,
-        percentage:
-          game.questions.length > 0
-            ? (correctAnswers / game.questions.length) * 100
-            : 0,
-        avatar: p.avatar,
-      };
-    });
-
-    return {
-      gameId: game.id,
-      createdAt: game.createdAt,
-      totalPlayers: game.players.length,
-      totalQuestions: game.questions.length,
-      leaderboard,
-    };
+    return calculateResults(game);
   }
 
   getAllGames(): Game[] {
