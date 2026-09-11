@@ -62,7 +62,9 @@ export interface CreateGameData {
 
 export interface JoinGameData {
   gameId: string;
+  playerId?: string;
   playerName: string;
+  avatar?: PlayerAvatar;
 }
 
 export interface SubmitAnswerData {
@@ -131,6 +133,16 @@ export interface ServerToClientEvents {
     timeLeft: number;
   }) => void;
 
+  "question-changed": (data: {
+    question: Question;
+    questionIndex: number;
+    timeLeft: number;
+  }) => void;
+
+  /**
+   * @deprecated Evento sin emisor; el evento vigente es `question-changed`.
+   * Se elimina en US-15.
+   */
   "question-updated": (data: {
     question: Question;
     questionIndex: number;
@@ -155,6 +167,8 @@ export interface ServerToClientEvents {
     currentQuestionIndex: number;
     timeLeft: number;
   }) => void;
+
+  "update-dashboard": (data: Game[]) => void;
 }
 
 export interface SocketEvents
