@@ -6,7 +6,6 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
 } from "../../../types/types.js";
-import { toSafeLogDetail } from "../../system/log-redact.js";
 
 type ClientEventName = keyof ClientToServerEvents;
 
@@ -24,7 +23,7 @@ export function registerSocketRouter(
   io.on("connection", (socket: Socket<ClientToServerEvents, ServerToClientEvents>) => {
     const dispatch = (type: ClientEventName, raw: unknown): void => {
       void bus.dispatch(type, raw, { socketId: socket.id }).catch((error: unknown) => {
-        logger.error(`[router] ${type} failed`, toSafeLogDetail(error));
+        logger.error(`[router] ${type} failed`, error);
       });
     };
 
