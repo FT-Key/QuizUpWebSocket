@@ -34,7 +34,7 @@ describe("FinishGame", () => {
         .withPlayers(player)
         .build()
     );
-    const persistSpy = vi.spyOn(repo, "persistPlayers");
+    const persistSpy = vi.spyOn(repo, "updatePlayers");
     const saveSpy = vi.spyOn(repo, "save");
 
     await useCase.execute({ gameId: GAME_ID });

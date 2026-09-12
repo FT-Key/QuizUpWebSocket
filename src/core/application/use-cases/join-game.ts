@@ -84,7 +84,7 @@ export function createJoinGameUseCase(deps: JoinGameDeps): JoinGameUseCase {
           JSON.stringify(target.avatar ?? null) !== JSON.stringify(resolvedAvatar ?? null)
         ) {
           target.avatar = resolvedAvatar;
-          await repo.save(game);
+          await repo.updatePlayers(gameId, [target]);
         }
 
         target.avatar = resolvedAvatar;
@@ -126,7 +126,7 @@ export function createJoinGameUseCase(deps: JoinGameDeps): JoinGameUseCase {
           avatar: avatar ?? { seed: playerName },
         };
         game.players.push(player);
-        await repo.save(game);
+        await repo.addPlayer(gameId, player);
       }
 
       gateway.joinGameRoom(socketId, gameId);

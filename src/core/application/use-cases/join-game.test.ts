@@ -57,6 +57,7 @@ describe("JoinGame — alta de jugador nuevo", () => {
   it("persiste al jugador, responde al socket y emite en el orden legacy", async () => {
     const { repo, gateway, useCase } = setup();
     repo.seed(waitingGame());
+    const addPlayerSpy = vi.spyOn(repo, "addPlayer");
 
     const result = await useCase.execute({
       gameId: GAME_ID,
@@ -102,6 +103,13 @@ describe("JoinGame — alta de jugador nuevo", () => {
     expect(saved!.players).toHaveLength(1);
     expect(saved!.players[0].name).toBe("Ana");
     expect(saved!.players[0].avatar).toEqual({ seed: "Ana" });
+
+    // US-19: el alta se persiste con `addPlayer` diferencial (no con `save`).
+    expect(addPlayerSpy).toHaveBeenCalledTimes(1);
+    expect(addPlayerSpy).toHaveBeenCalledWith(
+      GAME_ID,
+      expect.objectContaining({ id: "player-1", name: "Ana", gameId: GAME_ID })
+    );
   });
 
   it("trata playerId null como alta nueva (el cliente lo emite en el primer join, sin join-error)", async () => {
@@ -259,7 +267,7 @@ describe("JoinGame — reconexión por playerId", () => {
     const { repo, gateway, useCase } = setup();
     const { game } = activeGameWithPlayer();
     repo.seed(game);
-    const saveSpy = vi.spyOn(repo, "save");
+    const updatePlayersSpy = vi.spyOn(repo, "updatePlayers");
 
     const result = await useCase.execute({ gameId: GAME_ID, playerId: "p-1", socketId: "s-2" });
 
@@ -271,7 +279,7 @@ describe("JoinGame — reconexión por playerId", () => {
       avatar: { seed: "ana-av", accessories: ["hat"] },
     });
     expect((await repo.findById(GAME_ID))!.players).toHaveLength(1);
-    expect(saveSpy).not.toHaveBeenCalled();
+    expect(updatePlayersSpy).not.toHaveBeenCalled();
     expect((emissionOf(gateway, "admins", "game-state").payload as { timeLeft: number }).timeLeft).toBe(
       19496
     );
@@ -301,7 +309,7 @@ describe("JoinGame — reconexión por playerId", () => {
     const { repo, gateway, useCase } = setup();
     const { game } = activeGameWithPlayer();
     repo.seed(game);
-    const saveSpy = vi.spyOn(repo, "save");
+    const updatePlayersSpy = vi.spyOn(repo, "updatePlayers");
 
     const result = await useCase.execute({
       gameId: GAME_ID,
@@ -311,7 +319,8 @@ describe("JoinGame — reconexión por playerId", () => {
     });
 
     expect(result.player.avatar).toEqual({ seed: "nueva", accessories: ["crown"] });
-    expect(saveSpy).toHaveBeenCalledTimes(1);
+    expect(updatePlayersSpy).toHaveBeenCalledTimes(1);
+    expect(updatePlayersSpy).toHaveBeenCalledWith(GAME_ID, [result.player]);
     expect((await repo.findById(GAME_ID))!.players[0].avatar).toEqual({
       seed: "nueva",
       accessories: ["crown"],
@@ -327,7 +336,7 @@ describe("JoinGame — reconexión por playerId", () => {
     const { repo, useCase } = setup();
     const { game } = activeGameWithPlayer();
     repo.seed(game);
-    const saveSpy = vi.spyOn(repo, "save");
+    const updatePlayersSpy = vi.spyOn(repo, "updatePlayers");
 
     const result = await useCase.execute({
       gameId: GAME_ID,
@@ -337,7 +346,7 @@ describe("JoinGame — reconexión por playerId", () => {
     });
 
     expect(result.player.avatar).toEqual({ seed: "ana-av", accessories: ["hat"] });
-    expect(saveSpy).not.toHaveBeenCalled();
+    expect(updatePlayersSpy).not.toHaveBeenCalled();
   });
 
   it("CARACTERIZACIÓN US-16: lee la partida fresca, no la copia cacheada stale (join cross-proceso)", async () => {

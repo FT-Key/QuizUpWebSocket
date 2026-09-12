@@ -37,7 +37,7 @@ describe("ForceFinishQuestion (finish-question / timeout)", () => {
   it("partida active y pregunta iniciada: cierra la pregunta, persiste y emite sin dashboard", async () => {
     const { repo, gateway, useCase } = setup();
     repo.seed(activeGame());
-    const persistSpy = vi.spyOn(repo, "persistPlayers");
+    const persistSpy = vi.spyOn(repo, "updatePlayers");
     const saveSpy = vi.spyOn(repo, "save");
 
     await useCase.execute({ gameId: GAME_ID });
@@ -69,7 +69,7 @@ describe("ForceFinishQuestion (finish-question / timeout)", () => {
         .withCurrentQuestionStartTime(START_TIME)
         .build()
     );
-    const persistSpy = vi.spyOn(repo, "persistPlayers");
+    const persistSpy = vi.spyOn(repo, "updatePlayers");
 
     await useCase.execute({ gameId: GAME_ID });
 
@@ -80,7 +80,7 @@ describe("ForceFinishQuestion (finish-question / timeout)", () => {
   it("active pero con currentQuestionStartTime 0: no-op", async () => {
     const { repo, gateway, useCase } = setup();
     repo.seed(activeGame(0));
-    const persistSpy = vi.spyOn(repo, "persistPlayers");
+    const persistSpy = vi.spyOn(repo, "updatePlayers");
 
     await useCase.execute({ gameId: GAME_ID });
 

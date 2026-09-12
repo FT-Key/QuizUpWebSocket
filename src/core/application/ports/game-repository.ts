@@ -2,17 +2,22 @@ import type { Game } from "../../domain/game.js";
 import type { Player } from "../../domain/player.js";
 
 /**
- * Persistencia del agregado `Game` (puerto de `core`, US-05).
+ * Persistencia del agregado `Game` (puerto de `core`, US-05; persistencia
+ * diferencial de jugadores, US-19).
  *
  * Semántica común a todas las implementaciones:
- * - `save` es **update-only**: actualiza una partida existente y **no la crea**
- *   (las partidas nacen en Next/REST; el WS nunca las crea, igual que el
- *   `findOneAndUpdate` legacy sin upsert). Si la partida no existe, es no-op.
- * - `findById`/`findByIdFresh`/`findByPlayerId` pueden devolver la
- *   **referencia viva** de la caché (adaptador Mongo) o una **copia** (fake en
- *   memoria): el aliasing no forma parte del contrato. Tras mutar el juego, los
- *   consumidores SIEMPRE deben llamar a `save`/`persistPlayers` para persistir;
- *   nunca deben depender de mutar la referencia devuelta.
+ * - `save` es **update-only**: actualiza el estado de una partida existente y
+ *   **no la crea**; si no existe, no-op. Persiste SOLO estado (name, status,
+ *   índices, locked); **no toca `players`**.
+ * - Los jugadores se persisten con operaciones diferenciales atómicas por
+ *   documento: `addPlayer`/`removePlayer`/`updatePlayers`. Ninguna reemplaza el
+ *   array completo, así que no pisan altas/bajas concurrentes de otros procesos
+ *   (p. ej. el join REST de Next).
+ * - `findById`/`findByIdFresh`/`findByPlayerId` pueden devolver la referencia
+ *   viva de la caché (adaptador Mongo) o una copia (fake): el aliasing no forma
+ *   parte del contrato. Tras mutar el juego, los consumidores SIEMPRE deben
+ *   persistir con la operación correspondiente (save/addPlayer/removePlayer/
+ *   updatePlayers); nunca deben depender de mutar la referencia devuelta.
  */
 export interface GameRepository {
   /**
@@ -38,13 +43,34 @@ export interface GameRepository {
   findByPlayerId(playerId: string): Promise<Game | null>;
 
   /**
-   * Persiste el estado mutable del agregado (name, status, índices, locked y
-   * players). **Update-only**: si la partida no existe, no-op (sin upsert).
+   * Persiste SOLO el estado mutable del agregado: `name`, `status`,
+   * `currentQuestionIndex`, `currentQuestionStartTime`, `questionTimeLimit` y
+   * `locked`. **No persiste `players`** (usar `addPlayer`/`removePlayer`/
+   * `updatePlayers`). Update-only: si la partida no existe, no-op (sin upsert).
    */
   save(game: Game): Promise<void>;
 
-  /** Persiste solo `answers` + `score` de los jugadores (equivalente al `bulkWrite` actual). */
-  persistPlayers(gameId: string, players: Player[]): Promise<void>;
+  /**
+   * Alta atómica de un jugador al final de `players` (`$push` condicionado por
+   * id). Idempotente por `player.id`: si ya existe, no lo duplica ni lo
+   * modifica. No-op silencioso si la partida no existe.
+   */
+  addPlayer(gameId: string, player: Player): Promise<void>;
+
+  /**
+   * Baja atómica de un jugador por id (`$pull`). Idempotente: si el jugador no
+   * está, no-op. No-op silencioso si la partida no existe.
+   */
+  removePlayer(gameId: string, playerId: string): Promise<void>;
+
+  /**
+   * Actualiza selectivamente campos mutables de jugadores EXISTENTES
+   * (`answers`, `score`, `avatar`); nunca inserta ni elimina, y los ids
+   * desconocidos son no-op. Reemplaza a `persistPlayers` (US-05); `name` no se
+   * persiste aquí porque el dominio no lo muta tras el alta. No refresca la
+   * caché: la referencia viva del caller ya refleja la mutación.
+   */
+  updatePlayers(gameId: string, players: Player[]): Promise<void>;
 
   /** Todas las partidas, orden `createdAt desc` (orden actual del dashboard). */
   listAll(): Promise<Game[]>;
