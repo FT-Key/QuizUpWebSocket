@@ -101,7 +101,11 @@ function repositoryContractTests<TRepo extends CacheAwareGameRepository>(
         .build();
       await repo.save(updated);
 
-      const found = await repo.findById(code);
+      // Lectura fresca (sin caché): el argumento de `save` es una copia
+      // artificial (no la referencia viva leída del repo), y la caché conserva
+      // el argumento (fix review US-19), así que la DB se verifica con
+      // `findByIdFresh`. El impostor P2 no debe llegar al documento.
+      const found = await repo.findByIdFresh(code);
       expect(found!.status).toBe("active");
       expect(found!.currentQuestionIndex).toBe(2);
       expect(found!.currentQuestionStartTime).toBe(1234);
@@ -110,8 +114,8 @@ function repositoryContractTests<TRepo extends CacheAwareGameRepository>(
       expect(found!.players.map((p) => p.id)).toEqual([`${code}-p1`]);
       expect(found!.players.some((p) => p.id === `${code}-p2`)).toBe(false);
 
-      // Solo la variante Mongo: `findById` puede resolver de la caché que `save`
-      // refresca, así que se verifica además la escritura real en la DB.
+      // Solo la variante Mongo: verificación extra de la escritura de estado
+      // directo en el documento (sin pasar por el adaptador).
       if (verifySaved) await verifySaved(updated);
     });
 

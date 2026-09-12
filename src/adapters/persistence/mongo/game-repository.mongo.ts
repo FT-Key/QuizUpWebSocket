@@ -27,6 +27,12 @@ import {
  * en cambio, clona). El aliasing no es contrato: tras mutar hay que persistir
  * con `save` (estado) o con las operaciones diferenciales de jugadores
  * (`addPlayer`/`removePlayer`/`updatePlayers`).
+ *
+ * La caché viva puede contener mutaciones aún no persistidas (p. ej.
+ * `answers`/`score` durante una pregunta activa de `submit-answer`); las
+ * escrituras del adaptador no la pisan con el documento crudo (`save` conserva
+ * el argumento y `removePlayer` actualiza la entrada); solo las lecturas
+ * frescas (`findByIdFresh`) y `addPlayer` refrescan desde Mongo.
  */
 export interface MongoGameRepository extends GameRepository {
   cacheGame(game: Game): void;
@@ -105,16 +111,16 @@ export function createMongoGameRepository(
       // mutables de estado, sin reescribir questions/_id/createdAt/creatorId ni
       // `players` (esos van por addPlayer/removePlayer/updatePlayers). Si la
       // partida no existe, no-op: no se cachea para no crear un "fantasma"
-      // (paridad con el fake). Si existe, la caché se refresca con el doc REAL
-      // (`{ new: true }`), no con el argumento: un `save` de estado nunca debe
-      // retroceder `players` a una copia stale.
-      const updated = await GameModel.findOneAndUpdate(
+      // (paridad con el fake). Si existe, la caché conserva el ARGUMENTO (la
+      // referencia viva, con las mutaciones en memoria aún no persistidas:
+      // answers/score de submit-answer); nunca se pisa con el documento crudo
+      // del update, que solo se usa para confirmar el match.
+      const matched = await GameModel.findOneAndUpdate(
         { gameCode: game.id },
-        { $set: toPersistence(game) },
-        { new: true }
+        { $set: toPersistence(game) }
       ).lean<GameDoc | null>();
 
-      if (updated) cache.set(game.id, toDomain(updated));
+      if (matched) cache.set(game.id, game);
     },
 
     async addPlayer(gameId, player) {
@@ -139,7 +145,20 @@ export function createMongoGameRepository(
         { new: true }
       ).lean<GameDoc | null>();
 
-      if (updated) cache.set(gameId, toDomain(updated));
+      if (!updated) return;
+
+      // La caché viva puede llevar mutaciones en memoria sin persistir
+      // (answers/score de submit-answer): no se pisa con el documento crudo.
+      // Si la partida está cacheada, se quita al jugador sobre la referencia
+      // viva (idempotente: si no está, la entrada queda igual); si no lo está,
+      // se cachea la copia recién leída de Mongo.
+      const cached = cache.get(gameId);
+      if (cached) {
+        cached.players = cached.players.filter((p) => p.id !== playerId);
+        return;
+      }
+
+      cache.set(gameId, toDomain(updated));
     },
 
     async updatePlayers(gameId, players) {

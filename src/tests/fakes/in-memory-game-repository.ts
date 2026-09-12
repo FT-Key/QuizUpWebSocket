@@ -81,7 +81,9 @@ export function createInMemoryGameRepository(
       const stored = games.get(gameId);
       if (!stored) return;
       if (stored.players.some((p) => p.id === player.id)) return;
-      stored.players.push(structuredClone(player));
+      // Paridad con `toPersistencePlayer` (Mongo): el id de la partida es la
+      // fuente de verdad y queda sellado en el jugador persistido.
+      stored.players.push({ ...structuredClone(player), gameId });
     },
 
     async removePlayer(gameId, playerId) {

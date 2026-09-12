@@ -8,7 +8,9 @@
  *   stale. El alta de `join` (P3) debe convivir con P2 vía `addPlayer`
  *   diferencial; con el `save` de array completo, P2 se perdía.
  * - Bloque Mongo (`skipIf(!MONGODB_URI_TEST)`): misma carrera con `$push` real
- *   sobre `GameModel` dentro del `findByIdFresh` interceptado (prefijo `ws19-`).
+ *   sobre `GameModel` dentro del `findByIdFresh` interceptado (prefijo `ws19-`),
+ *   más la regresión del fix de review: `save`/`removePlayer` no pisan la caché
+ *   viva (mutaciones sin persistir de `submit-answer`).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import mongoose from "mongoose";
@@ -20,6 +22,7 @@ import { createJoinGameUseCase } from "../../core/application/use-cases/join-gam
 import { connectToMongo } from "../../adapters/persistence/mongo/connection.js";
 import { createMongoGameRepository } from "../../adapters/persistence/mongo/game-repository.mongo.js";
 import { GameModel } from "../../adapters/persistence/mongo/game.schema.js";
+import { answersToRecord } from "../../adapters/persistence/mongo/game.mapper.js";
 import type { GameDoc } from "../../types/db.js";
 import { GameBuilder } from "../builders/game-builder.js";
 import { PlayerBuilder } from "../builders/player-builder.js";
@@ -129,6 +132,88 @@ describe.skipIf(!process.env.MONGODB_URI_TEST)("JoinGame — carrera Mongo (US-1
       externalP2.id,
       "player-1",
     ]);
+  });
+
+  // Fix de review US-19: durante una pregunta activa la caché viva lleva
+  // `answers`/`score` mutados por `submit-answer` sin persistir; un `save`
+  // (`lock-game`) o un `removePlayer` con id que no matchea (`leave-game`) no
+  // deben pisarla con el documento crudo de Mongo.
+  describe("caché viva: mutaciones sin persistir (fix review)", () => {
+    it("removePlayer con un id que no matchea conserva answers/score de la caché", async () => {
+      const code = `${MONGODB_PREFIX}cache-remove-${Date.now().toString(36)}`;
+      const repo = createMongoGameRepository();
+      await seedMongoGame(waitingGameWithP1(code, `${code}-p1`));
+
+      // Cache-hit (referencia viva): `submit-answer` muta answers/score y NO
+      // persiste (comportamiento congelado).
+      const live = (await repo.findById(code))!;
+      const questionId = live.questions[0].id;
+      const player = live.players.find((p) => p.id === `${code}-p1`)!;
+      player.answers[questionId] = 2;
+      player.score = 42;
+
+      // `$pull` sin coincidencias: no-op en Mongo, pero `findOneAndUpdate`
+      // devuelve el documento completo. Antes la caché se pisaba con ese doc.
+      await repo.removePlayer(code, `${code}-missing`);
+
+      const cachedPlayer = repo
+        .getCached(code)!
+        .players.find((p) => p.id === `${code}-p1`)!;
+      expect(cachedPlayer.answers[questionId]).toBe(2);
+      expect(cachedPlayer.score).toBe(42);
+
+      // La mutación sigue siendo solo de la caché viva (submit-answer no persiste).
+      const doc = await GameModel.findOne({ gameCode: code }).lean<GameDoc | null>();
+      expect(answersToRecord(doc!.players[0].answers)).toEqual({});
+      expect(doc!.players[0].score).toBe(0);
+    });
+
+    it("save (lock-game) conserva la caché viva y updatePlayers posterior la persiste", async () => {
+      const code = `${MONGODB_PREFIX}cache-save-${Date.now().toString(36)}`;
+      const repo = createMongoGameRepository();
+      await seedMongoGame(waitingGameWithP1(code, `${code}-p1`));
+
+      const live = (await repo.findById(code))!;
+      const questionId = live.questions[0].id;
+      const player = live.players[0];
+      player.answers[questionId] = 1;
+      player.score = 7;
+
+      // `lock-game`: muta estado y llama `save` sobre la misma referencia viva.
+      live.locked = true;
+      await repo.save(live);
+
+      // La mutación sin persistir sobrevive en la caché y `findById` la ve.
+      const cached = repo.getCached(code)!;
+      expect(cached.players[0].answers[questionId]).toBe(1);
+      expect(cached.players[0].score).toBe(7);
+      expect((await repo.findById(code))!.players[0].score).toBe(7);
+
+      // El cierre de pregunta (`updatePlayers`) la persiste en el documento.
+      await repo.updatePlayers(code, [cached.players[0]]);
+
+      const doc = await GameModel.findOne({ gameCode: code }).lean<GameDoc | null>();
+      expect(doc!.locked).toBe(true);
+      expect(answersToRecord(doc!.players[0].answers)).toEqual({ [questionId]: 1 });
+      expect(doc!.players[0].score).toBe(7);
+    });
+
+    it("addPlayer sigue refrescando la caché con el alta real", async () => {
+      const code = `${MONGODB_PREFIX}cache-add-${Date.now().toString(36)}`;
+      const repo = createMongoGameRepository();
+      await seedMongoGame(waitingGameWithP1(code, `${code}-p1`));
+
+      const live = (await repo.findById(code))!;
+      expect(live.players).toHaveLength(1);
+
+      await repo.addPlayer(code, externalPlayer(code, `${code}-p2`));
+
+      // El refresh con el doc real trae el alta (seguro: solo se usa en `waiting`).
+      expect(repo.getCached(code)!.players.map((p) => p.id)).toEqual([
+        `${code}-p1`,
+        `${code}-p2`,
+      ]);
+    });
   });
 });
 

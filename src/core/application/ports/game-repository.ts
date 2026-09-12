@@ -18,12 +18,18 @@ import type { Player } from "../../domain/player.js";
  *   parte del contrato. Tras mutar el juego, los consumidores SIEMPRE deben
  *   persistir con la operación correspondiente (save/addPlayer/removePlayer/
  *   updatePlayers); nunca deben depender de mutar la referencia devuelta.
+ * - La caché viva puede contener mutaciones aún no persistidas (p. ej.
+ *   `answers`/`score` durante una pregunta activa de `submit-answer`); las
+ *   escrituras del adaptador no la pisan con el documento crudo (`save`
+ *   conserva el argumento y `removePlayer` actualiza la entrada); solo las
+ *   lecturas frescas y `addPlayer` refrescan desde Mongo.
  */
 export interface GameRepository {
   /**
    * Partida por id (== gameCode). Cache-first: si no está en caché, carga de
-   * Mongo y la cachea. Mismo aliasing que el resto del puerto: persistir con
-   * `save` tras mutar.
+   * Mongo y la cachea. Mismo aliasing que el resto del puerto: tras mutar, la
+   * persistencia va con la operación correspondiente (`save` para el estado;
+   * `addPlayer`/`removePlayer`/`updatePlayers` para jugadores).
    */
   findById(gameId: string): Promise<Game | null>;
 
