@@ -139,16 +139,6 @@ export interface ServerToClientEvents {
     timeLeft: number;
   }) => void;
 
-  /**
-   * @deprecated Evento sin emisor; el evento vigente es `question-changed`.
-   * Se elimina en US-15.
-   */
-  "question-updated": (data: {
-    question: Question;
-    questionIndex: number;
-    timeLeft: number;
-  }) => void;
-
   "question-finished": (data: { currentQuestionIndex: number }) => void;
 
   "answer-submitted": (data: {
