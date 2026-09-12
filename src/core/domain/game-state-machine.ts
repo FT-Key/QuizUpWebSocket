@@ -1,8 +1,9 @@
 import type { Game } from "./game.js";
+import { GAME_STATUS, QUESTION_NOT_STARTED } from "./game/constants.js";
 
 /** `true` si la partida puede iniciarse (paridad con el guard del handler `start-game`). */
 export function canStart(game: Game): boolean {
-  return game.status === "waiting";
+  return game.status === GAME_STATUS.WAITING;
 }
 
 /**
@@ -11,7 +12,7 @@ export function canStart(game: Game): boolean {
  * Efecto: status="active", currentQuestionIndex=0, currentQuestionStartTime=now.
  */
 export function start(game: Game, now: number): void {
-  game.status = "active";
+  game.status = GAME_STATUS.ACTIVE;
   game.currentQuestionIndex = 0;
   game.currentQuestionStartTime = now;
 }
@@ -35,13 +36,13 @@ export function nextQuestion(game: Game, now: number): NextQuestionOutcome {
 
 /** Cualquier estado -> finished. No resetea `currentQuestionStartTime` (paridad). */
 export function finish(game: Game): void {
-  game.status = "finished";
+  game.status = GAME_STATUS.FINISHED;
 }
 
 /** waiting -> cancelled. Devuelve `false` sin mutar si no estaba `waiting` (paridad `cancelGame`). */
 export function cancel(game: Game): boolean {
-  if (game.status !== "waiting") return false;
-  game.status = "cancelled";
+  if (game.status !== GAME_STATUS.WAITING) return false;
+  game.status = GAME_STATUS.CANCELLED;
   return true;
 }
 
@@ -52,5 +53,5 @@ export function lock(game: Game, locked: boolean): void {
 
 /** Fin de la pregunta actual: `currentQuestionStartTime = 0`, status intacto (paridad `finishCurrentQuestion`). */
 export function finishCurrentQuestion(game: Game): void {
-  game.currentQuestionStartTime = 0;
+  game.currentQuestionStartTime = QUESTION_NOT_STARTED;
 }

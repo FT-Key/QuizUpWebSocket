@@ -125,7 +125,7 @@ describe("SocketEventRouter", () => {
     await vi.waitFor(() => expect(logger.error).toHaveBeenCalledTimes(1));
     expect(logger.error).toHaveBeenCalledWith(
       "[router] submit-answer failed",
-      expect.any(Error)
+      expect.objectContaining({ name: "Error", message: "boom" })
     );
 
     // El fallo no propaga: el socket puede seguir despachando eventos.

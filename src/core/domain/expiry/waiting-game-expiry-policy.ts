@@ -1,4 +1,5 @@
 import type { Game } from "../game.js";
+import { GAME_STATUS } from "../game/constants.js";
 
 /** Firma estructuralmente compatible con `GameCleanupPolicy` (core/application) sin invertir la dependencia. */
 export interface WaitingGameExpiryPolicy {
@@ -14,7 +15,7 @@ export interface WaitingGameExpiryPolicy {
 export function createWaitingGameExpiryPolicy(expiryMs: number): WaitingGameExpiryPolicy {
   return {
     isExpired(game, now) {
-      if (game.status !== "waiting") return false;
+      if (game.status !== GAME_STATUS.WAITING) return false;
       const created = game.createdAt.getTime();
       if (!Number.isFinite(created)) return false;
       return now - created > expiryMs;

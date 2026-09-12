@@ -1,5 +1,6 @@
 import type { Clock } from "../../core/application/ports/clock.js";
 import type { Game } from "../../core/domain/game.js";
+import { GAME_STATUS } from "../../core/domain/game/constants.js";
 import { createSystemClock } from "../system/clock.js";
 
 /**
@@ -28,7 +29,10 @@ export interface RepositoryCacheOptions {
 export const DEFAULT_CACHE_TTL_MS = 60 * 60 * 1000;
 export const DEFAULT_MAX_CACHED_GAMES = 500;
 
-const PRUNABLE_STATUSES: ReadonlySet<Game["status"]> = new Set(["finished", "cancelled"]);
+const PRUNABLE_STATUSES: ReadonlySet<Game["status"]> = new Set([
+  GAME_STATUS.FINISHED,
+  GAME_STATUS.CANCELLED,
+]);
 
 export function resolveRepositoryCacheOptions(
   options: RepositoryCacheOptions = {}

@@ -1,4 +1,5 @@
 import type { Game } from "../../../core/domain/game.js";
+import { GAME_STATUS } from "../../../core/domain/game/constants.js";
 import type { Player } from "../../../core/domain/player.js";
 import type { GameRepository } from "../../../core/application/ports/game-repository.js";
 import { GameModel } from "./game.schema.js";
@@ -133,7 +134,7 @@ export function createMongoGameRepository(
 
     async findWaitingCreatedBefore(cutoff) {
       const docs = await GameModel.find({
-        status: "waiting",
+        status: GAME_STATUS.WAITING,
         createdAt: { $lt: cutoff },
       }).lean<GameDoc[]>();
       return docs.map(toDomain);

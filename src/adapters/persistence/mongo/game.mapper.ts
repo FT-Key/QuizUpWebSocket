@@ -53,14 +53,14 @@ export function toDomain(doc: GameDoc): Game {
     id: doc.gameCode,
     name: doc.name,
     status: doc.status,
-    questions: (doc.questions || []).map((q) => ({
+    questions: (doc.questions ?? []).map((q) => ({
       id: q._id ? String(q._id) : "",
       text: q.text,
       options: q.options,
       correctAnswer: q.correctAnswer,
       image: q.image ?? null,
     })),
-    players: (doc.players || []).map((p) => ({
+    players: (doc.players ?? []).map((p) => ({
       id: p.id,
       name: p.name,
       gameId: doc.gameCode,
@@ -73,6 +73,7 @@ export function toDomain(doc: GameDoc): Game {
     creatorId: doc.creatorId,
     currentQuestionIndex: doc.currentQuestionIndex,
     currentQuestionStartTime: doc.currentQuestionStartTime ?? 0,
+    // `0` es un límite inválido (contrato: ms > 0): se conserva `||` para caer al default.
     questionTimeLimit: doc.questionTimeLimit || DEFAULT_TIME_LIMIT_MS,
     locked: doc.locked ?? false,
   };

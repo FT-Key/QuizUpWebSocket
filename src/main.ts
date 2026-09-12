@@ -12,16 +12,17 @@ import {
   createCleanupScheduler,
   DEFAULT_CLEANUP_INTERVAL_MS,
 } from "./adapters/timers/cleanup-scheduler.js";
+import { toSafeLogDetail } from "./adapters/system/log-redact.js";
 import { loadConfig } from "./infra/config.js";
 import { createContainer } from "./infra/container.js";
 
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 process.on("uncaughtException", (err) =>
-  console.error("[process] uncaughtException:", err)
+  console.error("[process] uncaughtException:", toSafeLogDetail(err))
 );
 process.on("unhandledRejection", (reason) =>
-  console.error("[process] unhandledRejection:", reason)
+  console.error("[process] unhandledRejection:", toSafeLogDetail(reason))
 );
 
 /**
@@ -49,7 +50,7 @@ async function main(): Promise<void> {
       await container.repo.prune();
     },
     intervalMs: DEFAULT_CLEANUP_INTERVAL_MS,
-    onError: (error) => container.logger.error("[main] cleanup failed", error),
+    onError: (error) => container.logger.error("[main] cleanup failed", toSafeLogDetail(error)),
   });
   cleanupScheduler.start();
 
@@ -59,6 +60,6 @@ async function main(): Promise<void> {
 }
 
 void main().catch((err) => {
-  console.error("[main] Failed to start:", err);
+  console.error("[main] Failed to start:", toSafeLogDetail(err));
   process.exit(1);
 });
