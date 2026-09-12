@@ -62,8 +62,10 @@ export interface CreateGameData {
 
 export interface JoinGameData {
   gameId: string;
-  playerId?: string;
-  playerName: string;
+  /** `null` == ausente (primer join). El cliente lo emite así desde US-13. */
+  playerId?: string | null;
+  /** Opcional en el evento; la requeridización de un alta nueva es del caso de uso. */
+  playerName?: string;
   avatar?: PlayerAvatar;
 }
 
@@ -129,7 +131,7 @@ export interface ServerToClientEvents {
     game: Game;
     players: Player[];
     currentQuestion: Question;
-    results?: any;
+    results?: never;
     timeLeft: number;
   }) => void;
 
@@ -147,7 +149,7 @@ export interface ServerToClientEvents {
     answer: number;
   }) => void;
 
-  "game-finished": (data: { game: Game; results: any }) => void;
+  "game-finished": (data: { game: Game; results: GameResults | null }) => void;
 
   "game-cancelled": (data: { game: Game }) => void;
 
