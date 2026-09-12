@@ -62,7 +62,8 @@ export function createMongoGameRepository(
 
     async findById(gameId) {
       // Cache-first: si no está, carga de Mongo y cachea. En hit devuelve la
-      // referencia viva de la caché (mutarla no persiste: usar `save`).
+      // referencia viva de la caché: mutarla no persiste; usar `save` para
+      // estado y `addPlayer`/`removePlayer`/`updatePlayers` para jugadores.
       const cached = cache.get(gameId);
       if (cached) return cached;
 
