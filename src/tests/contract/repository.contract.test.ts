@@ -375,4 +375,43 @@ describe.skipIf(!process.env.MONGODB_URI_TEST)("MongoGameRepository", () => {
   });
 
   repositoryContractTests("mongo", createMongoGameRepository, seedMongoGame, verifyMongoSaved);
+
+  it("findByIdFresh (US-16) ve la escritura externa, refresca la caché y no altera el cache-first de findById", async () => {
+    const code = `ws05-fresh-${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+    const repo = createMongoGameRepository();
+    await seedMongoGame(repo, new GameBuilder().withId(code).withStatus("waiting").build());
+
+    // El admin carga la partida: `findById` cachea la copia con 0 jugadores.
+    expect((await repo.findById(code))!.players).toHaveLength(0);
+
+    // Join externo (otro proceso, p. ej. POST /api/games/join de Next): escribe
+    // directo en Mongo sin pasar por la caché de este adaptador.
+    const externalPlayer = {
+      id: `${code}-ext`,
+      name: "Externo",
+      gameId: code,
+      answers: {},
+      score: 0,
+      joinedAt: new Date(),
+    };
+    await GameModel.updateOne({ gameCode: code }, { $push: { players: externalPlayer } });
+
+    // Cache-first intacto: `findById` sigue devolviendo la copia stale.
+    expect((await repo.findById(code))!.players).toHaveLength(0);
+
+    // Lectura fresca: ve al jugador externo y refresca la caché.
+    const fresh = await repo.findByIdFresh(code);
+    expect(fresh!.players).toHaveLength(1);
+    expect(fresh!.players[0]).toMatchObject({
+      id: externalPlayer.id,
+      name: "Externo",
+      score: 0,
+      answers: {},
+    });
+    expect(repo.getCached(code)!.players).toHaveLength(1);
+
+    // Miss: no cachea negativos.
+    expect(await repo.findByIdFresh(`${code}-missing`)).toBeNull();
+    expect(repo.getCached(`${code}-missing`)).toBeUndefined();
+  });
 });

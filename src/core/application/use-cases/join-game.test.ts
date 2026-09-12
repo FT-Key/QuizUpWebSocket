@@ -339,4 +339,35 @@ describe("JoinGame — reconexión por playerId", () => {
     expect(result.player.avatar).toEqual({ seed: "ana-av", accessories: ["hat"] });
     expect(saveSpy).not.toHaveBeenCalled();
   });
+
+  it("CARACTERIZACIÓN US-16: lee la partida fresca, no la copia cacheada stale (join cross-proceso)", async () => {
+    const { repo, gateway, useCase } = setup();
+    const { game } = activeGameWithPlayer();
+    repo.seed(game);
+
+    // Caché stale: el admin cargó la partida antes de que el REST de Next
+    // agregara al jugador desde otro proceso. `findById` no lo ve; la lectura
+    // fresca sí. Si el caso de uso regresa a `findById`, este test falla con
+    // NotFoundError("Invalid join data").
+    const stale = new GameBuilder()
+      .withId(GAME_ID)
+      .withStatus("active")
+      .withQuestions(QUESTION)
+      .build();
+    const findByIdSpy = vi.spyOn(repo, "findById").mockResolvedValue(stale);
+    const findByIdFreshSpy = vi.spyOn(repo, "findByIdFresh");
+
+    const result = await useCase.execute({ gameId: GAME_ID, playerId: "p-1", socketId: "s-2" });
+
+    expect(findByIdFreshSpy).toHaveBeenCalledWith(GAME_ID);
+    expect(findByIdSpy).not.toHaveBeenCalled();
+    expect(result.player.id).toBe("p-1");
+    expect(gateway.emissions.some((e) => e.event === "join-error")).toBe(false);
+    expect((emissionOf(gateway, "socket", "joined").payload as { player: { id: string } }).player.id).toBe(
+      "p-1"
+    );
+    expect(
+      (emissionOf(gateway, "admins", "player-joined").payload as { player: { id: string } }).player.id
+    ).toBe("p-1");
+  });
 });
