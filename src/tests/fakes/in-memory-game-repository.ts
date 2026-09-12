@@ -52,6 +52,13 @@ export function createInMemoryGameRepository(
       return game ? cloneGame(game) : null;
     },
 
+    async findByIdFresh(gameId) {
+      // En memoria no hay fuente externa que pueda escribir por detrás, así que
+      // la lectura fresca coincide con `findById` (fuente única + copia defensiva).
+      const game = games.get(gameId);
+      return game ? cloneGame(game) : null;
+    },
+
     async findByPlayerId(playerId) {
       for (const game of games.values()) {
         if (game.players.some((p) => p.id === playerId)) {

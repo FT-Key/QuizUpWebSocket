@@ -38,6 +38,10 @@ export interface JoinGameDeps {
  * Paridad con `playerHandlers.onJoinGame`: mismos guards, mensajes de
  * `join-error` y orden de emisiones (game-state→admins, joined→socket,
  * player-joined→admins, game-updated→game+admins, update-dashboard).
+ * La lectura inicial es SIEMPRE fresca de Mongo (`findByIdFresh`, paridad con el
+ * `GameModel.findOne` + `gameStore.addGameFromDb` legacy): el join REST de Next
+ * escribe la partida desde otro proceso y la copia cacheada del WS puede estar
+ * stale (sin ese jugador). El resto de handlers mantiene `findById` cache-first.
  * Los errores se emiten al socket y además se lanzan como `DomainError` (D6).
  */
 export function createJoinGameUseCase(deps: JoinGameDeps): JoinGameUseCase {
@@ -45,7 +49,7 @@ export function createJoinGameUseCase(deps: JoinGameDeps): JoinGameUseCase {
 
   return {
     async execute({ gameId, playerId, playerName, avatar, socketId }) {
-      const game = await repo.findById(gameId);
+      const game = await repo.findByIdFresh(gameId);
       if (!game) {
         const message = "Game not found";
         gateway.toSocket(socketId, "join-error", { message });

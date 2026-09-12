@@ -62,6 +62,21 @@ export function createMongoGameRepository(
       return game;
     },
 
+    async findByIdFresh(gameId) {
+      // Lectura SIEMPRE fresca: a diferencia de `findById` (cache-first), ignora
+      // la caché y va a Mongo en cada llamada. El resultado refresca la caché
+      // (paridad con el `GameModel.findOne` + `gameStore.addGameFromDb` del join
+      // legacy), para que las escrituras de otros procesos (p. ej. el join REST
+      // de Next) se vean antes de mutar y `save` (que reescribe `players`
+      // completo). Los misses no se cachean: no crea "fantasmas".
+      const doc = await GameModel.findOne({ gameCode: gameId }).lean<GameDoc | null>();
+      if (!doc) return null;
+
+      const game = toDomain(doc);
+      cache.set(game.id, game);
+      return game;
+    },
+
     async findByPlayerId(playerId) {
       // Escaneo de caché (paridad con `submitAnswer`); si no está, consulta
       // Mongo por `players.id`, cachea el resultado y lo devuelve.

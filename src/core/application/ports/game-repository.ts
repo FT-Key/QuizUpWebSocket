@@ -8,11 +8,11 @@ import type { Player } from "../../domain/player.js";
  * - `save` es **update-only**: actualiza una partida existente y **no la crea**
  *   (las partidas nacen en Next/REST; el WS nunca las crea, igual que el
  *   `findOneAndUpdate` legacy sin upsert). Si la partida no existe, es no-op.
- * - `findById`/`findByPlayerId` pueden devolver la **referencia viva** de la
- *   caché (adaptador Mongo) o una **copia** (fake en memoria): el aliasing no
- *   forma parte del contrato. Tras mutar el juego, los consumidores SIEMPRE
- *   deben llamar a `save`/`persistPlayers` para persistir; nunca deben depender
- *   de mutar la referencia devuelta.
+ * - `findById`/`findByIdFresh`/`findByPlayerId` pueden devolver la
+ *   **referencia viva** de la caché (adaptador Mongo) o una **copia** (fake en
+ *   memoria): el aliasing no forma parte del contrato. Tras mutar el juego, los
+ *   consumidores SIEMPRE deben llamar a `save`/`persistPlayers` para persistir;
+ *   nunca deben depender de mutar la referencia devuelta.
  */
 export interface GameRepository {
   /**
@@ -21,6 +21,14 @@ export interface GameRepository {
    * `save` tras mutar.
    */
   findById(gameId: string): Promise<Game | null>;
+
+  /**
+   * Partida por id con lectura SIEMPRE fresca de la fuente (sin caché), y
+   * refresca la caché con el resultado (equivalente a `GameModel.findOne` +
+   * `gameStore.addGameFromDb` del join legacy). Necesaria para ver escrituras
+   * de otros procesos (p. ej. el join REST de Next) antes de mutar y guardar.
+   */
+  findByIdFresh(gameId: string): Promise<Game | null>;
 
   /**
    * Partida que contiene al jugador. Busca primero en la caché en memoria
