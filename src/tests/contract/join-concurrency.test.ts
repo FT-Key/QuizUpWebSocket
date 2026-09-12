@@ -10,11 +10,17 @@
  * - Bloque Mongo (`skipIf(!MONGODB_URI_TEST)`): misma carrera con `$push` real
  *   sobre `GameModel` dentro del `findByIdFresh` interceptado (prefijo `ws19-`).
  */
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import mongoose from "mongoose";
 import type { Game } from "../../core/domain/game.js";
 import type { Player } from "../../core/domain/player.js";
+import type { GameRepository } from "../../core/application/ports/game-repository.js";
 import { createWaitingGameExpiryPolicy } from "../../core/domain/expiry/waiting-game-expiry-policy.js";
 import { createJoinGameUseCase } from "../../core/application/use-cases/join-game.js";
+import { connectToMongo } from "../../adapters/persistence/mongo/connection.js";
+import { createMongoGameRepository } from "../../adapters/persistence/mongo/game-repository.mongo.js";
+import { GameModel } from "../../adapters/persistence/mongo/game.schema.js";
+import type { GameDoc } from "../../types/db.js";
 import { GameBuilder } from "../builders/game-builder.js";
 import { PlayerBuilder } from "../builders/player-builder.js";
 import { QuestionBuilder } from "../builders/question-builder.js";
@@ -26,15 +32,16 @@ import { createSequentialIds } from "../fakes/sequential-ids.js";
 const GAME_ID = "123456";
 const BASE_TIME = 1_700_000_000_000;
 const EXPIRY_MS = 60 * 60 * 1000;
+const MONGODB_PREFIX = "ws19-";
 
 /** Partida `waiting` recién creada (no expirada) con P1 dentro. */
-function waitingGameWithP1(gameId = GAME_ID): Game {
+function waitingGameWithP1(gameId = GAME_ID, playerId = "p-1"): Game {
   return new GameBuilder()
     .withId(gameId)
     .withCreatedAt(new Date(BASE_TIME))
     .withQuestion(new QuestionBuilder().withId("q-1").build())
     .withPlayers(
-      new PlayerBuilder().withId("p-1").withName("Ana").withGameId(gameId).build()
+      new PlayerBuilder().withId(playerId).withName("Ana").withGameId(gameId).build()
     )
     .build();
 }
@@ -80,3 +87,77 @@ describe("JoinGame — carrera de persistencia (US-19)", () => {
     expect(stored!.players.map((p) => p.id)).toEqual(["p-1", "p-2", "player-1"]);
   });
 });
+
+describe.skipIf(!process.env.MONGODB_URI_TEST)("JoinGame — carrera Mongo (US-19)", () => {
+  beforeAll(async () => {
+    await connectToMongo(process.env.MONGODB_URI_TEST!);
+  });
+
+  afterAll(async () => {
+    await GameModel.deleteMany({ gameCode: { $regex: `^${MONGODB_PREFIX}` } });
+    await mongoose.disconnect();
+  });
+
+  it("carrera Mongo: el $push externo entre la lectura fresca y addPlayer sobrevive", async () => {
+    const code = `${MONGODB_PREFIX}race-${Date.now().toString(36)}`;
+    const base = createMongoGameRepository();
+    await seedMongoGame(waitingGameWithP1(code, `${code}-p1`));
+
+    const externalP2 = externalPlayer(code, `${code}-p2`);
+    const racingRepo: GameRepository = {
+      ...base,
+      async findByIdFresh(gameId) {
+        const stale = await base.findByIdFresh(gameId); // copia sin P2
+        // Escritura externa real de otro proceso (POST /api/games/join de Next).
+        await GameModel.updateOne({ gameCode: gameId }, { $push: { players: externalP2 } });
+        return stale;
+      },
+    };
+    const useCase = createJoinGameUseCase({
+      repo: racingRepo,
+      gateway: createRecordingGateway(),
+      clock: createFixedClock(BASE_TIME),
+      ids: createSequentialIds("player"),
+      policy: createWaitingGameExpiryPolicy(EXPIRY_MS),
+    });
+
+    await useCase.execute({ gameId: code, playerName: "Carla", socketId: "s-1" });
+
+    const doc = await GameModel.findOne({ gameCode: code }).lean<GameDoc | null>();
+    expect(doc!.players.map((p) => p.id)).toEqual([
+      `${code}-p1`,
+      externalP2.id,
+      "player-1",
+    ]);
+  });
+});
+
+/** Siembra directa en Mongo (mismo shape que la suite de contrato, US-05). */
+async function seedMongoGame(game: Game): Promise<void> {
+  await GameModel.create({
+    name: game.name,
+    gameCode: game.id,
+    questions: game.questions.map((q) => ({
+      text: q.text,
+      options: q.options,
+      correctAnswer: q.correctAnswer,
+      image: q.image ?? null,
+    })),
+    createdAt: game.createdAt,
+    creatorId: game.creatorId,
+    status: game.status,
+    currentQuestionIndex: game.currentQuestionIndex,
+    currentQuestionStartTime: game.currentQuestionStartTime,
+    questionTimeLimit: game.questionTimeLimit,
+    locked: game.locked ?? false,
+    players: game.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      gameId: p.gameId,
+      answers: { ...p.answers },
+      score: p.score,
+      joinedAt: p.joinedAt,
+      avatar: p.avatar ?? null,
+    })),
+  });
+}

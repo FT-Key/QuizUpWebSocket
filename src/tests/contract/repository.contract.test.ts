@@ -293,6 +293,18 @@ function repositoryContractTests<TRepo extends CacheAwareGameRepository>(
       expect(ids).not.toContain(oldCancelled);
     });
 
+    it("findByIdFresh devuelve el juego en hit y null en miss", async () => {
+      const code = nextCode();
+      await seedGame(repo, new GameBuilder().withId(code).build());
+
+      const found = await repo.findByIdFresh(code);
+      expect(found).not.toBeNull();
+      expect(found!.id).toBe(code);
+
+      // La semántica de frescura/caché se cubre en el caso Mongo de US-16.
+      expect(await repo.findByIdFresh(`${code}-missing`)).toBeNull();
+    });
+
     describe("prune (US-08)", () => {
       const NOW = Date.parse("2026-06-01T00:00:00.000Z");
       const TTL_MS = 60 * 60 * 1000;
