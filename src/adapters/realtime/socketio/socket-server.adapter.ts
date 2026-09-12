@@ -6,6 +6,7 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
 } from "../../../types/types.js";
+import { toSafeLogDetail } from "../../system/log-redact.js";
 
 /** Server HTTP del adaptador (paridad con `socket-server.ts:18-39`). */
 export type QuizUpHttpServer = HttpServer;
@@ -35,7 +36,10 @@ export function createHttpServer(): QuizUpHttpServer {
       res.writeHead(404, { "Content-Type": "text/plain" });
       res.end("Not Found");
     } catch (err) {
-      console.error("[socket-server.adapter] httpServer error:", err);
+      console.error(
+        "[socket-server.adapter] httpServer error:",
+        toSafeLogDetail(err)
+      );
       res.writeHead(500, { "Content-Type": "text/plain" });
       res.end("Internal Server Error");
     }
