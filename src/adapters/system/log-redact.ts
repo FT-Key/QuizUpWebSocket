@@ -1,6 +1,6 @@
 /**
  * Sanitización de datos para logs (US-17, BL-16): proyecta `Error` a
- * `{ name, message, stack }` —sin props adjuntas ni payloads— y redacta URIs
+ * `{ name, message, stack? }` —sin props adjuntas ni payloads— y redacta URIs
  * de Mongo embebidas en cualquier string. Helper puro y sin dependencias:
  * el logger conserva su firma y el caller decide qué pasa.
  */
@@ -14,16 +14,18 @@ export function redactSecrets(text: string): string {
 }
 
 /**
- * `Error` → `{ name, message, stack }` con secretos redactados (sin props
- * adjuntas); cualquier otro valor → `String(...)` redactado.
+ * `Error` → `{ name, message, stack? }` con secretos redactados (sin props
+ * adjuntas; `stack` se omite si el Error no lo trae); cualquier otro valor →
+ * `String(...)` redactado.
  */
 export function toSafeLogDetail(cause: unknown): unknown {
   if (cause instanceof Error) {
-    return {
+    const detail: { name: string; message: string; stack?: string } = {
       name: cause.name,
       message: redactSecrets(cause.message),
-      stack: cause.stack ? redactSecrets(cause.stack) : undefined,
     };
+    if (cause.stack) detail.stack = redactSecrets(cause.stack);
+    return detail;
   }
   return redactSecrets(String(cause));
 }

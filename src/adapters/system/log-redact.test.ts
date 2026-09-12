@@ -49,6 +49,16 @@ describe("toSafeLogDetail — Error", () => {
     expect(Object.keys(detail).sort()).toEqual(["message", "name", "stack"]);
     expect(JSON.stringify(detail)).not.toContain(MONGO_URI);
   });
+
+  it("omite la clave `stack` si el Error no la trae", () => {
+    const cause = new Error("boom");
+    delete cause.stack;
+
+    const detail = toSafeLogDetail(cause) as Record<string, unknown>;
+
+    expect(Object.keys(detail).sort()).toEqual(["message", "name"]);
+    expect("stack" in detail).toBe(false);
+  });
 });
 
 describe("toSafeLogDetail — no-Error", () => {
