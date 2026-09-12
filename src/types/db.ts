@@ -7,7 +7,7 @@ export type GameDoc = {
   gameCode: string;
   status: "waiting" | "active" | "finished" | "cancelled";
   questions: Array<{
-    _id?: any;
+    _id?: Types.ObjectId | string;
     text: string;
     options: [string, string, string, string];
     correctAnswer: number;
