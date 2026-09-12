@@ -66,9 +66,10 @@ export interface GameRepository {
   /**
    * Actualiza selectivamente campos mutables de jugadores EXISTENTES
    * (`answers`, `score`, `avatar`); nunca inserta ni elimina, y los ids
-   * desconocidos son no-op. Reemplaza a `persistPlayers` (US-05); `name` no se
-   * persiste aquí porque el dominio no lo muta tras el alta. No refresca la
-   * caché: la referencia viva del caller ya refleja la mutación.
+   * desconocidos son no-op. Generaliza la persistencia selectiva de jugadores
+   * de US-05; `name` no se persiste aquí porque el dominio no lo muta tras el
+   * alta. No refresca la caché: la referencia viva del caller ya refleja la
+   * mutación.
    */
   updatePlayers(gameId: string, players: Player[]): Promise<void>;
 
