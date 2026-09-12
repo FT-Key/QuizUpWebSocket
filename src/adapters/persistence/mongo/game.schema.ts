@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { GAME_STATUS } from "../../../core/domain/game/constants.js";
 
 // `mongoose` es CJS: bajo `ts-node/esm` (runtime real) no expone named exports,
 // así que Schema/model/models se toman del default (deuda destapada por el smoke US-07).
@@ -56,8 +57,8 @@ const gameSchema = new Schema({
   creatorId: { type: String, required: true },
   status: {
     type: String,
-    enum: ["waiting", "active", "finished", "cancelled"],
-    default: "waiting",
+    enum: [GAME_STATUS.WAITING, GAME_STATUS.ACTIVE, GAME_STATUS.FINISHED, GAME_STATUS.CANCELLED],
+    default: GAME_STATUS.WAITING,
   },
   currentQuestionIndex: { type: Number, default: 0 },
   currentQuestionStartTime: { type: Number, default: 0 },
@@ -69,4 +70,4 @@ const gameSchema = new Schema({
 // Índice compuesto del contrato §4 (limpieza de partidas expiradas).
 gameSchema.index({ status: 1, createdAt: 1 });
 
-export const GameModel = models.Game || model("Game", gameSchema);
+export const GameModel = models.Game ?? model("Game", gameSchema);

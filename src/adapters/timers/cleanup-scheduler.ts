@@ -26,7 +26,7 @@ export function createCleanupScheduler(deps: CleanupSchedulerDeps): CleanupSched
 
   const execute = (): void => {
     void run().catch((error: unknown) => {
-      onError?.(error);
+      onError?.(error); // best-effort: sin onError el fallo del ciclo se degrada (main lo inyecta siempre)
     });
   };
 

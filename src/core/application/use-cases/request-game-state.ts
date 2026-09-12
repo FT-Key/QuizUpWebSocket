@@ -1,3 +1,4 @@
+import { GAME_STATUS, QUESTION_NOT_STARTED } from "../../domain/game/constants.js";
 import { cancel } from "../../domain/game-state-machine.js";
 import type { Clock } from "../ports/clock.js";
 import type { GameCleanupPolicy } from "../ports/game-cleanup-policy.js";
@@ -32,7 +33,7 @@ export function createRequestGameStateUseCase(
       const game = await repo.findById(gameId);
       if (!game) return;
 
-      if (game.status === "waiting" && policy.isExpired(game, clock.now())) {
+      if (game.status === GAME_STATUS.WAITING && policy.isExpired(game, clock.now())) {
         cancel(game);
         await repo.save(game);
         gateway.toGame(gameId, "game-cancelled", { game });
@@ -40,7 +41,7 @@ export function createRequestGameStateUseCase(
       }
 
       const timeLeft =
-        game.currentQuestionStartTime > 0
+        game.currentQuestionStartTime > QUESTION_NOT_STARTED
           ? Math.max(
               0,
               game.questionTimeLimit - (clock.now() - game.currentQuestionStartTime)

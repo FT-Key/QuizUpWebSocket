@@ -1,4 +1,5 @@
 import type { Game } from "../../domain/game.js";
+import { GAME_STATUS, QUESTION_NOT_STARTED } from "../../domain/game/constants.js";
 import type { Player, PlayerAvatar } from "../../domain/player.js";
 import { ConflictError, NotFoundError } from "../../domain/errors.js";
 import { cancel } from "../../domain/game-state-machine.js";
@@ -8,6 +9,9 @@ import type { GameRepository } from "../ports/game-repository.js";
 import type { IdGenerator } from "../ports/id-generator.js";
 import type { RealtimeGateway } from "../ports/realtime-gateway.js";
 import type { UseCase } from "./use-case.js";
+
+/** Mensaje compartido por los guards de alta nueva y reconexión (contrato de `join-error`). */
+const INVALID_JOIN_DATA_MESSAGE = "Invalid join data";
 
 export interface JoinGameInput {
   gameId: string;
@@ -61,7 +65,7 @@ export function createJoinGameUseCase(deps: JoinGameDeps): JoinGameUseCase {
       if (playerId) {
         const target = game.players.find((p) => p.id === playerId);
         if (!target) {
-          const message = "Invalid join data";
+          const message = INVALID_JOIN_DATA_MESSAGE;
           gateway.toSocket(socketId, "join-error", { message });
           throw new NotFoundError(message);
         }
@@ -87,7 +91,7 @@ export function createJoinGameUseCase(deps: JoinGameDeps): JoinGameUseCase {
         player = target;
       } else {
         if (!playerName) {
-          const message = "Invalid join data";
+          const message = INVALID_JOIN_DATA_MESSAGE;
           gateway.toSocket(socketId, "join-error", { message });
           throw new NotFoundError(message);
         }
@@ -98,7 +102,7 @@ export function createJoinGameUseCase(deps: JoinGameDeps): JoinGameUseCase {
           throw new ConflictError(message);
         }
 
-        if (game.status === "waiting" && policy.isExpired(game, clock.now())) {
+        if (game.status === GAME_STATUS.WAITING && policy.isExpired(game, clock.now())) {
           cancel(game);
           await repo.save(game);
           const message = "La partida fue cerrada por inactividad";
@@ -106,7 +110,7 @@ export function createJoinGameUseCase(deps: JoinGameDeps): JoinGameUseCase {
           throw new ConflictError(message);
         }
 
-        if (game.status !== "waiting") {
+        if (game.status !== GAME_STATUS.WAITING) {
           const message = "La partida ya comenzó";
           gateway.toSocket(socketId, "join-error", { message });
           throw new ConflictError(message);
@@ -135,7 +139,7 @@ export function createJoinGameUseCase(deps: JoinGameDeps): JoinGameUseCase {
         // Paridad `playerHandlers.ts:185-189`: en join NO se clampea a 0
         // (puede llegar negativo si la pregunta ya venció).
         timeLeft:
-          game.currentQuestionStartTime > 0
+          game.currentQuestionStartTime > QUESTION_NOT_STARTED
             ? game.questionTimeLimit - (clock.now() - game.currentQuestionStartTime)
             : game.questionTimeLimit,
       });

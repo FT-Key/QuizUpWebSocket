@@ -1,4 +1,5 @@
 import { finishCurrentQuestion } from "../../domain/game-state-machine.js";
+import { GAME_STATUS, QUESTION_NOT_STARTED } from "../../domain/game/constants.js";
 import type { GameRepository } from "../ports/game-repository.js";
 import type { RealtimeGateway } from "../ports/realtime-gateway.js";
 import type { UseCase } from "./use-case.js";
@@ -27,7 +28,13 @@ export function createForceFinishQuestionUseCase(
   return {
     async execute({ gameId }) {
       const game = await repo.findById(gameId);
-      if (!game || game.status !== "active" || game.currentQuestionStartTime === 0) return;
+      if (
+        !game ||
+        game.status !== GAME_STATUS.ACTIVE ||
+        game.currentQuestionStartTime === QUESTION_NOT_STARTED
+      ) {
+        return;
+      }
 
       finishCurrentQuestion(game);
       await repo.persistPlayers(gameId, game.players);
