@@ -62,7 +62,11 @@ export interface CreateGameData {
 
 export interface JoinGameData {
   gameId: string;
-  playerName: string;
+  /** `null` == ausente (primer join). El cliente lo emite así desde US-13. */
+  playerId?: string | null;
+  /** Opcional en el evento; la requeridización de un alta nueva es del caso de uso. */
+  playerName?: string;
+  avatar?: PlayerAvatar;
 }
 
 export interface SubmitAnswerData {
@@ -102,7 +106,7 @@ export interface GameResults {
 
 export interface ClientToServerEvents {
   "join-game": (data: JoinGameData) => void;
-  "join-admin": (data: { gameId: string }) => void;
+  "join-admin": (gameId: string) => void;
   "start-game": (data: { gameId: string }) => void;
   "next-question": (data: { gameId: string }) => void;
   "finish-question": (data: { gameId: string }) => void;
@@ -127,11 +131,11 @@ export interface ServerToClientEvents {
     game: Game;
     players: Player[];
     currentQuestion: Question;
-    results?: any;
+    results?: never;
     timeLeft: number;
   }) => void;
 
-  "question-updated": (data: {
+  "question-changed": (data: {
     question: Question;
     questionIndex: number;
     timeLeft: number;
@@ -145,7 +149,7 @@ export interface ServerToClientEvents {
     answer: number;
   }) => void;
 
-  "game-finished": (data: { game: Game; results: any }) => void;
+  "game-finished": (data: { game: Game; results: GameResults | null }) => void;
 
   "game-cancelled": (data: { game: Game }) => void;
 
@@ -155,6 +159,8 @@ export interface ServerToClientEvents {
     currentQuestionIndex: number;
     timeLeft: number;
   }) => void;
+
+  "update-dashboard": (data: Game[]) => void;
 }
 
 export interface SocketEvents
