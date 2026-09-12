@@ -1,4 +1,5 @@
 import type { Game, GameStatus } from "../../../core/domain/game.js";
+import type { Player } from "../../../core/domain/player.js";
 import type { GameDoc } from "../../../types/db.js";
 import { DEFAULT_TIME_LIMIT_MS } from "../../../constants/game.js";
 
@@ -20,7 +21,7 @@ export interface PersistedPlayer {
   avatar?: { seed: string; accessories?: string[] };
 }
 
-/** Campos mutables del agregado que `save` persiste (questions/createdAt/creatorId son inmutables). */
+/** Campos de estado que `save` persiste (questions/createdAt/creatorId/players son de otras operaciones). */
 export interface GamePersistence {
   gameCode: string;
   name: string;
@@ -29,7 +30,6 @@ export interface GamePersistence {
   currentQuestionStartTime: number;
   questionTimeLimit: number;
   locked: boolean;
-  players: PersistedPlayer[];
 }
 
 /**
@@ -80,13 +80,14 @@ export function toDomain(doc: GameDoc): Game {
 }
 
 /**
- * Agregado → campos persistibles de `save` (sin questions/_id/createdAt/creatorId).
+ * Agregado → campos persistibles de `save` (sin questions/_id/createdAt/
+ * creatorId, y SIN `players`: US-19).
  *
  * No incluye `questions` ni `createdAt` ni `creatorId`: durante la partida no
- * cambian y sus `_id`/fechas no deben reescribirse. `answers` sale como objeto
- * plano (mismo shape que el `$set` del `bulkWrite` legacy); Mongoose lo castea
- * a Map al escribir. `players[].gameId` se sella con `game.id` (el `gameCode`
- * es la fuente de verdad, igual que hace `toDomain`).
+ * cambian y sus `_id`/fechas no deben reescribirse. Tampoco incluye `players`:
+ * la colección se persiste con operaciones diferenciales
+ * (`addPlayer`/`removePlayer`/`updatePlayers`) para no pisar escrituras
+ * concurrentes de otros procesos.
  */
 export function toPersistence(game: Game): GamePersistence {
   return {
@@ -97,14 +98,24 @@ export function toPersistence(game: Game): GamePersistence {
     currentQuestionStartTime: game.currentQuestionStartTime,
     questionTimeLimit: game.questionTimeLimit,
     locked: game.locked ?? false,
-    players: game.players.map((p) => ({
-      id: p.id,
-      name: p.name,
-      gameId: game.id,
-      answers: answersToRecord(p.answers),
-      score: p.score,
-      joinedAt: p.joinedAt,
-      avatar: p.avatar,
-    })),
+  };
+}
+
+/**
+ * Jugador de dominio → subdocumento de `players` para `$push` (`addPlayer`).
+ *
+ * Sella `gameId` con el id de la partida (el `gameCode` es la fuente de verdad,
+ * igual que hace `toDomain`); `answers` sale como objeto plano y `avatar` es
+ * opcional. `joinedAt` se preserva tal cual.
+ */
+export function toPersistencePlayer(player: Player, gameId: string): PersistedPlayer {
+  return {
+    id: player.id,
+    name: player.name,
+    gameId,
+    answers: answersToRecord(player.answers),
+    score: player.score,
+    joinedAt: player.joinedAt,
+    avatar: player.avatar,
   };
 }

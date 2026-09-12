@@ -36,7 +36,7 @@ export function createNextQuestionUseCase(
       if (!game) return;
 
       const outcome = nextQuestion(game, clock.now());
-      await repo.persistPlayers(gameId, game.players);
+      await repo.updatePlayers(gameId, game.players);
 
       if (outcome === "finished") {
         const results = calculateResults(game);

@@ -33,7 +33,7 @@ export function createFinishGameUseCase(
       if (!game) return;
 
       finish(game);
-      await repo.persistPlayers(gameId, game.players);
+      await repo.updatePlayers(gameId, game.players);
       await repo.save(game);
 
       const results = calculateResults(game);

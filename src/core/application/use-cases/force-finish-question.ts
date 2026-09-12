@@ -37,7 +37,7 @@ export function createForceFinishQuestionUseCase(
       }
 
       finishCurrentQuestion(game);
-      await repo.persistPlayers(gameId, game.players);
+      await repo.updatePlayers(gameId, game.players);
 
       const currentQuestionIndex = game.currentQuestionIndex;
       gateway.toGame(gameId, "question-finished", { currentQuestionIndex });

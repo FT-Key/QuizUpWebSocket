@@ -60,7 +60,7 @@ describe("SubmitAnswer — scoring (espejo de gameStore.test)", () => {
     const { repo, gateway, useCase } = setup();
     repo.seed(activeGame());
     const saveSpy = vi.spyOn(repo, "save");
-    const persistSpy = vi.spyOn(repo, "persistPlayers");
+    const updatePlayersSpy = vi.spyOn(repo, "updatePlayers");
 
     const result = await useCase.execute(submit("p-1", 1));
 
@@ -70,7 +70,7 @@ describe("SubmitAnswer — scoring (espejo de gameStore.test)", () => {
     expect(result!.finishedQuestion).toBe(true);
     expect(result!.game.currentQuestionStartTime).toBe(0);
     expect(saveSpy).not.toHaveBeenCalled();
-    expect(persistSpy).not.toHaveBeenCalled();
+    expect(updatePlayersSpy).not.toHaveBeenCalled();
 
     const stored = await repo.findById(GAME_ID);
     expect(stored!.players[0].score).toBe(0);

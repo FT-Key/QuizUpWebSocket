@@ -22,7 +22,6 @@ import {
 } from "../../adapters/persistence/mongo/game-repository.mongo.js";
 import type { RepositoryCacheOptions } from "../../adapters/persistence/repository-cache.js";
 import { GameModel } from "../../adapters/persistence/mongo/game.schema.js";
-import { answersToRecord } from "../../adapters/persistence/mongo/game.mapper.js";
 import {
   createInMemoryGameRepository,
   type InMemoryGameRepository,
@@ -72,17 +71,11 @@ function repositoryContractTests<TRepo extends CacheAwareGameRepository>(
       expect(found!.id).toBe(code);
     });
 
-    it("save hace visible status, índices, locked y players en el siguiente findById", async () => {
+    it("save actualiza status, índices y locked, y NO toca players (US-19)", async () => {
       const code = nextCode();
-      await seedGame(repo, new GameBuilder().withId(code).withStatus("waiting").build());
-
-      const updated = new GameBuilder()
+      const seeded = new GameBuilder()
         .withId(code)
-        .withStatus("active")
-        .withCurrentQuestionIndex(2)
-        .withCurrentQuestionStartTime(1234)
-        .withQuestionTimeLimit(30000)
-        .withLocked(true)
+        .withStatus("waiting")
         .withPlayers(
           new PlayerBuilder()
             .withId(`${code}-p1`)
@@ -92,25 +85,126 @@ function repositoryContractTests<TRepo extends CacheAwareGameRepository>(
             .build()
         )
         .build();
+      await seedGame(repo, seeded);
+
+      // El argumento de `save` trae P2 (jugador distinto) que NO debe persistirse:
+      // `save` es state-only y la colección va por operaciones diferenciales.
+      const impostor = new PlayerBuilder().withId(`${code}-p2`).withGameId(code).build();
+      const updated = new GameBuilder()
+        .withId(code)
+        .withStatus("active")
+        .withCurrentQuestionIndex(2)
+        .withCurrentQuestionStartTime(1234)
+        .withQuestionTimeLimit(30000)
+        .withLocked(true)
+        .withPlayers(impostor)
+        .build();
       await repo.save(updated);
 
-      const found = await repo.findById(code);
+      // Lectura fresca (sin caché): el argumento de `save` es una copia
+      // artificial (no la referencia viva leída del repo), y la caché conserva
+      // el argumento (fix review US-19), así que la DB se verifica con
+      // `findByIdFresh`. El impostor P2 no debe llegar al documento.
+      const found = await repo.findByIdFresh(code);
       expect(found!.status).toBe("active");
       expect(found!.currentQuestionIndex).toBe(2);
       expect(found!.currentQuestionStartTime).toBe(1234);
       expect(found!.questionTimeLimit).toBe(30000);
       expect(found!.locked).toBe(true);
-      expect(found!.players).toHaveLength(1);
-      expect(found!.players[0].id).toBe(`${code}-p1`);
-      expect(found!.players[0].answers).toEqual({ "q-1": 1 });
-      expect(found!.players[0].score).toBe(2001);
+      expect(found!.players.map((p) => p.id)).toEqual([`${code}-p1`]);
+      expect(found!.players.some((p) => p.id === `${code}-p2`)).toBe(false);
 
-      // Solo la variante Mongo: `findById` puede resolver de la caché que `save`
-      // refresca, así que se verifica además la escritura real en la DB.
+      // Solo la variante Mongo: verificación extra de la escritura de estado
+      // directo en el documento (sin pasar por el adaptador).
       if (verifySaved) await verifySaved(updated);
     });
 
-    it("persistPlayers persiste answers y score de ambos jugadores sin pisarse", async () => {
+    it("addPlayer agrega al final sin pisar a los jugadores existentes", async () => {
+      const code = nextCode();
+      const ana = new PlayerBuilder()
+        .withId(`${code}-ana`)
+        .withName("Ana")
+        .withGameId(code)
+        .build();
+      await seedGame(repo, new GameBuilder().withId(code).withPlayers(ana).build());
+
+      const luis = new PlayerBuilder()
+        .withId(`${code}-luis`)
+        .withName("Luis")
+        .withGameId(code)
+        .withAnswers({ "q-1": 1 })
+        .withScore(2001)
+        .build();
+      await repo.addPlayer(code, luis);
+
+      const found = await repo.findById(code);
+      expect(found!.players.map((p) => p.id)).toEqual([`${code}-ana`, `${code}-luis`]);
+      expect(found!.players[1]).toMatchObject({
+        id: `${code}-luis`,
+        name: "Luis",
+        gameId: code,
+        answers: { "q-1": 1 },
+        score: 2001,
+      });
+    });
+
+    it("addPlayer es idempotente por id: dos altas con el mismo id dejan un solo jugador", async () => {
+      const code = nextCode();
+      await seedGame(repo, new GameBuilder().withId(code).build());
+
+      const player = new PlayerBuilder()
+        .withId(`${code}-p1`)
+        .withName("Primero")
+        .withGameId(code)
+        .build();
+      await repo.addPlayer(code, player);
+      // Segunda alta con el mismo id y datos distintos: ni duplica ni modifica.
+      await repo.addPlayer(code, { ...player, name: "Duplicado", score: 9999 });
+
+      const found = await repo.findById(code);
+      expect(found!.players).toHaveLength(1);
+      expect(found!.players[0].id).toBe(`${code}-p1`);
+      expect(found!.players[0].name).toBe("Primero");
+      expect(found!.players[0].score).toBe(0);
+    });
+
+    it("addPlayer en partida inexistente es no-op y findById sigue null", async () => {
+      const code = `${nextCode()}-missing`;
+      const player = new PlayerBuilder().withId(`${code}-p1`).withGameId(code).build();
+
+      await repo.addPlayer(code, player);
+
+      expect(await repo.findById(code)).toBeNull();
+      expect(repo.getCached(code)).toBeUndefined();
+    });
+
+    it("removePlayer quita solo al jugador objetivo", async () => {
+      const code = nextCode();
+      const ana = new PlayerBuilder().withId(`${code}-ana`).withGameId(code).build();
+      const luis = new PlayerBuilder().withId(`${code}-luis`).withGameId(code).build();
+      await seedGame(repo, new GameBuilder().withId(code).withPlayers(ana, luis).build());
+
+      await repo.removePlayer(code, ana.id);
+
+      const found = await repo.findById(code);
+      expect(found!.players.map((p) => p.id)).toEqual([`${code}-luis`]);
+    });
+
+    it("removePlayer es idempotente y no-op en partida inexistente", async () => {
+      const code = nextCode();
+      const ana = new PlayerBuilder().withId(`${code}-ana`).withGameId(code).build();
+      await seedGame(repo, new GameBuilder().withId(code).withPlayers(ana).build());
+
+      await repo.removePlayer(code, ana.id);
+      await repo.removePlayer(code, ana.id); // segunda vez: no-op
+
+      expect((await repo.findById(code))!.players).toHaveLength(0);
+
+      await repo.removePlayer(`${code}-missing`, ana.id);
+      expect(await repo.findById(`${code}-missing`)).toBeNull();
+    });
+
+    it("updatePlayers actualiza answers, score y avatar de existentes e ignora ids desconocidos", async () => {
       const code = nextCode();
       const ana = new PlayerBuilder()
         .withId(`${code}-ana`)
@@ -118,26 +212,33 @@ function repositoryContractTests<TRepo extends CacheAwareGameRepository>(
         .withAnswers({ "q-1": 0 })
         .withScore(1)
         .build();
-      const luis = new PlayerBuilder()
-        .withId(`${code}-luis`)
-        .withGameId(code)
-        .withAnswers({})
-        .withScore(0)
-        .build();
+      const luis = new PlayerBuilder().withId(`${code}-luis`).withGameId(code).build();
       await seedGame(repo, new GameBuilder().withId(code).withPlayers(ana, luis).build());
 
-      await repo.persistPlayers(code, [
-        { ...ana, answers: { "q-1": 1 }, score: 2001 },
+      const unknown = new PlayerBuilder().withId(`${code}-fantasma`).withGameId(code).build();
+      await repo.updatePlayers(code, [
+        {
+          ...ana,
+          answers: { "q-1": 1 },
+          score: 2001,
+          avatar: { seed: "ana-nueva", accessories: ["hat"] },
+        },
         { ...luis, answers: { "q-1": 1, "q-2": 0 }, score: 1 },
+        { ...unknown, score: 9999 },
       ]);
 
       const found = await repo.findById(code);
+      expect(found!.players.map((p) => p.id)).toEqual([`${code}-ana`, `${code}-luis`]);
+
       const foundAna = found!.players.find((p) => p.id === `${code}-ana`);
-      const foundLuis = found!.players.find((p) => p.id === `${code}-luis`);
       expect(foundAna!.answers).toEqual({ "q-1": 1 });
       expect(foundAna!.score).toBe(2001);
+      expect(foundAna!.avatar).toEqual({ seed: "ana-nueva", accessories: ["hat"] });
+
+      const foundLuis = found!.players.find((p) => p.id === `${code}-luis`);
       expect(foundLuis!.answers).toEqual({ "q-1": 1, "q-2": 0 });
       expect(foundLuis!.score).toBe(1);
+      expect(foundLuis!.avatar).toBeUndefined();
     });
 
     it("findByPlayerId encuentra la partida del jugador y null en miss", async () => {
@@ -194,6 +295,18 @@ function repositoryContractTests<TRepo extends CacheAwareGameRepository>(
       expect(ids).not.toContain(oldActive);
       expect(ids).not.toContain(oldFinished);
       expect(ids).not.toContain(oldCancelled);
+    });
+
+    it("findByIdFresh devuelve el juego en hit y null en miss", async () => {
+      const code = nextCode();
+      await seedGame(repo, new GameBuilder().withId(code).build());
+
+      const found = await repo.findByIdFresh(code);
+      expect(found).not.toBeNull();
+      expect(found!.id).toBe(code);
+
+      // La semántica de frescura/caché se cubre en el caso Mongo de US-16.
+      expect(await repo.findByIdFresh(`${code}-missing`)).toBeNull();
     });
 
     describe("prune (US-08)", () => {
@@ -337,7 +450,8 @@ async function seedMongoGame(_repo: MongoGameRepository, game: Game): Promise<vo
 
 /**
  * Verificación exclusiva de Mongo: lee la partida directo de la DB (`.lean()`)
- * y comprueba la escritura real de `save`, sin pasar por la caché.
+ * y comprueba la escritura real de `save`, sin pasar por la caché. `save` es
+ * state-only (US-19): `players` se cubre con addPlayer/removePlayer/updatePlayers.
  */
 async function verifyMongoSaved(game: Game): Promise<void> {
   const doc = await GameModel.findOne({ gameCode: game.id }).lean<GameDoc | null>();
@@ -349,15 +463,6 @@ async function verifyMongoSaved(game: Game): Promise<void> {
   expect(doc!.currentQuestionStartTime).toBe(game.currentQuestionStartTime);
   expect(doc!.questionTimeLimit).toBe(game.questionTimeLimit);
   expect(doc!.locked).toBe(game.locked ?? false);
-  expect(doc!.players).toHaveLength(game.players.length);
-
-  game.players.forEach((player, index) => {
-    const persisted = doc!.players[index];
-    expect(persisted.id).toBe(player.id);
-    expect(persisted.gameId).toBe(game.id);
-    expect(answersToRecord(persisted.answers)).toEqual(player.answers);
-    expect(persisted.score).toBe(player.score);
-  });
 }
 
 describe("InMemoryGameRepository", () => {

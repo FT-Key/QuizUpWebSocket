@@ -1,9 +1,13 @@
 import type { Game } from "../../../core/domain/game.js";
 import { GAME_STATUS } from "../../../core/domain/game/constants.js";
-import type { Player } from "../../../core/domain/player.js";
 import type { GameRepository } from "../../../core/application/ports/game-repository.js";
 import { GameModel } from "./game.schema.js";
-import { answersToRecord, toDomain, toPersistence } from "./game.mapper.js";
+import {
+  answersToRecord,
+  toDomain,
+  toPersistence,
+  toPersistencePlayer,
+} from "./game.mapper.js";
 import type { GameDoc } from "../../../types/db.js";
 import {
   pruneRepositoryCache,
@@ -20,8 +24,15 @@ import {
  *
  * Aliasing: la caché guarda **referencias vivas** del dominio, así que
  * `findById`/`findByPlayerId` pueden devolverlas tal cual (el fake en memoria,
- * en cambio, clona). El aliasing no es contrato: tras mutar hay que llamar a
- * `save`/`persistPlayers` para persistir.
+ * en cambio, clona). El aliasing no es contrato: tras mutar hay que persistir
+ * con `save` (estado) o con las operaciones diferenciales de jugadores
+ * (`addPlayer`/`removePlayer`/`updatePlayers`).
+ *
+ * La caché viva puede contener mutaciones aún no persistidas (p. ej.
+ * `answers`/`score` durante una pregunta activa de `submit-answer`); las
+ * escrituras del adaptador no la pisan con el documento crudo (`save` conserva
+ * el argumento y `removePlayer` actualiza la entrada); solo las lecturas
+ * frescas (`findByIdFresh`) y `addPlayer` refrescan desde Mongo.
  */
 export interface MongoGameRepository extends GameRepository {
   cacheGame(game: Game): void;
@@ -51,7 +62,8 @@ export function createMongoGameRepository(
 
     async findById(gameId) {
       // Cache-first: si no está, carga de Mongo y cachea. En hit devuelve la
-      // referencia viva de la caché (mutarla no persiste: usar `save`).
+      // referencia viva de la caché: mutarla no persiste; usar `save` para
+      // estado y `addPlayer`/`removePlayer`/`updatePlayers` para jugadores.
       const cached = cache.get(gameId);
       if (cached) return cached;
 
@@ -68,8 +80,8 @@ export function createMongoGameRepository(
       // la caché y va a Mongo en cada llamada. El resultado refresca la caché
       // (paridad con el `GameModel.findOne` + `gameStore.addGameFromDb` del join
       // legacy), para que las escrituras de otros procesos (p. ej. el join REST
-      // de Next) se vean antes de mutar y `save` (que reescribe `players`
-      // completo). Los misses no se cachean: no crea "fantasmas".
+      // de Next) se vean antes de mutar y persistir de forma diferencial. Los
+      // misses no se cachean: no crea "fantasmas".
       const doc = await GameModel.findOne({ gameCode: gameId }).lean<GameDoc | null>();
       if (!doc) return null;
 
@@ -96,29 +108,74 @@ export function createMongoGameRepository(
     },
 
     async save(game) {
-      // Update-only (sin upsert): `$set` solo con campos mutables, no reescribe
-      // questions/_id/createdAt/creatorId. Si la partida no existe, no-op: no se
-      // cachea para no crear un "fantasma" (paridad con el fake). Si existe,
-      // refresca la caché con el agregado recibido.
-      const updated = await GameModel.findOneAndUpdate(
+      // Update-only (sin upsert) y state-only (US-19): `$set` solo con campos
+      // mutables de estado, sin reescribir questions/_id/createdAt/creatorId ni
+      // `players` (esos van por addPlayer/removePlayer/updatePlayers). Si la
+      // partida no existe, no-op: no se cachea para no crear un "fantasma"
+      // (paridad con el fake). Si existe, la caché conserva el ARGUMENTO (la
+      // referencia viva, con las mutaciones en memoria aún no persistidas:
+      // answers/score de submit-answer); nunca se pisa con el documento crudo
+      // del update, que solo se usa para confirmar el match.
+      const matched = await GameModel.findOneAndUpdate(
         { gameCode: game.id },
         { $set: toPersistence(game) }
-      );
+      ).lean<GameDoc | null>();
 
-      if (updated) cache.set(game.id, game);
+      if (matched) cache.set(game.id, game);
     },
 
-    async persistPlayers(gameId, players) {
+    async addPlayer(gameId, player) {
+      // Alta atómica (`$push`) condicionada por id: si el jugador ya está, el
+      // filtro no matchea y la operación es no-op idempotente. Doc inexistente
+      // ⇒ `findOneAndUpdate` devuelve null: no-op sin cachear fantasmas.
+      const updated = await GameModel.findOneAndUpdate(
+        { gameCode: gameId, "players.id": { $ne: player.id } },
+        { $push: { players: toPersistencePlayer(player, gameId) } },
+        { new: true }
+      ).lean<GameDoc | null>();
+
+      if (updated) cache.set(gameId, toDomain(updated));
+    },
+
+    async removePlayer(gameId, playerId) {
+      // Baja atómica (`$pull`) e idempotente: sin coincidencias no hay cambio.
+      // Doc inexistente ⇒ null: no-op sin cachear fantasmas.
+      const updated = await GameModel.findOneAndUpdate(
+        { gameCode: gameId },
+        { $pull: { players: { id: playerId } } },
+        { new: true }
+      ).lean<GameDoc | null>();
+
+      if (!updated) return;
+
+      // La caché viva puede llevar mutaciones en memoria sin persistir
+      // (answers/score de submit-answer): no se pisa con el documento crudo.
+      // Si la partida está cacheada, se quita al jugador sobre la referencia
+      // viva (idempotente: si no está, la entrada queda igual); si no lo está,
+      // se cachea la copia recién leída de Mongo.
+      const cached = cache.get(gameId);
+      if (cached) {
+        cached.players = cached.players.filter((p) => p.id !== playerId);
+        return;
+      }
+
+      cache.set(gameId, toDomain(updated));
+    },
+
+    async updatePlayers(gameId, players) {
       if (players.length === 0) return;
 
-      // Equivalente exacto al `bulkWrite` legacy de timeout/next-question/finish-game.
-      const operations = players.map((player: Player) => ({
+      // Equivalente al `bulkWrite` legacy de timeout/next-question/finish-game,
+      // ampliado a `avatar` (US-19). Selectivo por jugador existente: nunca
+      // inserta ni elimina; un id desconocido simplemente no matchea.
+      const operations = players.map((player) => ({
         updateOne: {
           filter: { gameCode: gameId, "players.id": player.id },
           update: {
             $set: {
               "players.$.answers": answersToRecord(player.answers),
               "players.$.score": player.score,
+              "players.$.avatar": player.avatar ?? null,
             },
           },
         },

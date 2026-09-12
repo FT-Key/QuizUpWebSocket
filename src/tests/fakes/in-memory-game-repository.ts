@@ -70,11 +70,29 @@ export function createInMemoryGameRepository(
 
     async save(game) {
       // Update-only: el WS no crea partidas; si no existe, no-op (paridad legacy).
-      if (!games.has(game.id)) return;
-      games.set(game.id, cloneGame(game));
+      // State-only (US-19): conserva `players` del stored (el argumento puede
+      // traer una copia stale); esos van por addPlayer/removePlayer/updatePlayers.
+      const stored = games.get(game.id);
+      if (!stored) return;
+      games.set(game.id, { ...cloneGame(game), players: stored.players });
     },
 
-    async persistPlayers(gameId, players) {
+    async addPlayer(gameId, player) {
+      const stored = games.get(gameId);
+      if (!stored) return;
+      if (stored.players.some((p) => p.id === player.id)) return;
+      // Paridad con `toPersistencePlayer` (Mongo): el id de la partida es la
+      // fuente de verdad y queda sellado en el jugador persistido.
+      stored.players.push({ ...structuredClone(player), gameId });
+    },
+
+    async removePlayer(gameId, playerId) {
+      const stored = games.get(gameId);
+      if (!stored) return;
+      stored.players = stored.players.filter((p) => p.id !== playerId);
+    },
+
+    async updatePlayers(gameId, players) {
       const stored = games.get(gameId);
       if (!stored) return;
 
@@ -83,6 +101,7 @@ export function createInMemoryGameRepository(
         if (!target) continue;
         target.answers = { ...player.answers };
         target.score = player.score;
+        target.avatar = player.avatar ? structuredClone(player.avatar) : undefined;
       }
     },
 

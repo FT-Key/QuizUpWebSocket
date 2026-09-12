@@ -10,7 +10,7 @@ import type { GameDoc } from "../../../types/db.js";
 import { DEFAULT_TIME_LIMIT_MS } from "../../../constants/game.js";
 import { GameBuilder } from "../../../tests/builders/game-builder.js";
 import { PlayerBuilder } from "../../../tests/builders/player-builder.js";
-import { answersToRecord, toDomain, toPersistence } from "./game.mapper.js";
+import { answersToRecord, toDomain, toPersistence, toPersistencePlayer } from "./game.mapper.js";
 
 const QUESTION_ID = new Types.ObjectId("64b000000000000000000001");
 const CREATED_AT = new Date("2026-01-02T03:04:05.000Z");
@@ -194,13 +194,16 @@ describe("toPersistence", () => {
     .withQuestionTimeLimit(30000)
     .withLocked(true)
     .withPlayers(
-      new PlayerBuilder().withId("p-1").withGameId("654321").withAnswers({ "q-1": 1 }).withScore(2001).build(),
-      // p-2 lleva un gameId ajeno a propósito: `toPersistence` debe sellarlo con game.id.
-      new PlayerBuilder().withId("p-2").withGameId("otro-game").withAnswers({ "q-1": 0 }).withScore(0).build()
+      new PlayerBuilder()
+        .withId("p-1")
+        .withGameId("654321")
+        .withAnswers({ "q-1": 1 })
+        .withScore(2001)
+        .build()
     )
     .build();
 
-  it("emite solo los campos mutables (sin questions, createdAt ni creatorId)", () => {
+  it("emite solo los campos de estado (sin questions, createdAt, creatorId ni players)", () => {
     const persistence = toPersistence(game);
 
     expect(Object.keys(persistence).sort()).toEqual([
@@ -209,16 +212,17 @@ describe("toPersistence", () => {
       "gameCode",
       "locked",
       "name",
-      "players",
       "questionTimeLimit",
       "status",
     ]);
     expect("questions" in persistence).toBe(false);
     expect("createdAt" in persistence).toBe(false);
     expect("creatorId" in persistence).toBe(false);
+    // US-19: `save` es state-only; `players` va por addPlayer/removePlayer/updatePlayers.
+    expect("players" in persistence).toBe(false);
   });
 
-  it("gameCode sale del id y answers como objeto plano (no Map)", () => {
+  it("gameCode sale del id y conserva el estado mutable", () => {
     const persistence = toPersistence(game);
 
     expect(persistence.gameCode).toBe("654321");
@@ -227,30 +231,6 @@ describe("toPersistence", () => {
     expect(persistence.currentQuestionStartTime).toBe(1_700_000_000_000);
     expect(persistence.questionTimeLimit).toBe(30000);
     expect(persistence.locked).toBe(true);
-
-    expect(persistence.players).toHaveLength(2);
-    for (const player of persistence.players) {
-      expect(player.answers).not.toBeInstanceOf(Map);
-      expect(typeof player.answers).toBe("object");
-    }
-  });
-
-  it("sella gameId con el id del juego y conserva answers y score de cada jugador", () => {
-    const persistence = toPersistence(game);
-
-    expect(persistence.players[0]).toMatchObject({
-      id: "p-1",
-      gameId: "654321",
-      answers: { "q-1": 1 },
-      score: 2001,
-    });
-    // p-2 venía con gameId "otro-game": el mapper lo sella con el id de la partida.
-    expect(persistence.players[1]).toMatchObject({
-      id: "p-2",
-      gameId: "654321",
-      answers: { "q-1": 0 },
-      score: 0,
-    });
   });
 
   it("locked undefined se persiste como false", () => {
@@ -258,5 +238,49 @@ describe("toPersistence", () => {
 
     expect(unlocked.locked).toBeUndefined();
     expect(toPersistence(unlocked).locked).toBe(false);
+  });
+});
+
+describe("toPersistencePlayer", () => {
+  it("sella gameId con el id de la partida y conserva answers plano, score, avatar y joinedAt", () => {
+    const joinedAt = new Date("2026-01-02T03:04:05.000Z");
+    const player = new PlayerBuilder()
+      .withId("p-1")
+      .withName("Ana")
+      .withGameId("otro-game") // ajeno a propósito: el mapper debe sellarlo con gameId.
+      .withAnswers({ "q-1": 1 })
+      .withScore(2001)
+      .withJoinedAt(joinedAt)
+      .withAvatar({ seed: "ana", accessories: ["hat"] })
+      .build();
+
+    const persisted = toPersistencePlayer(player, "654321");
+
+    expect(persisted).toMatchObject({
+      id: "p-1",
+      name: "Ana",
+      gameId: "654321",
+      answers: { "q-1": 1 },
+      score: 2001,
+      joinedAt,
+      avatar: { seed: "ana", accessories: ["hat"] },
+    });
+    expect(persisted.answers).not.toBeInstanceOf(Map);
+    expect(typeof persisted.answers).toBe("object");
+  });
+
+  it("avatar es opcional y no comparte la referencia original", () => {
+    const player = new PlayerBuilder()
+      .withId("p-2")
+      .withName("Luis")
+      .withGameId("654321")
+      .withAnswers({ "q-1": 0 })
+      .build();
+
+    const persisted = toPersistencePlayer(player, "654321");
+
+    expect(persisted.avatar).toBeUndefined();
+    expect(persisted.answers).toEqual({ "q-1": 0 });
+    expect(persisted.answers).not.toBe(player.answers);
   });
 });

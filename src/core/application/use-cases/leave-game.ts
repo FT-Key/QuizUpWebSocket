@@ -29,7 +29,7 @@ export function createLeaveGameUseCase(deps: {
       }
 
       game.players = game.players.filter((p) => p.id !== playerId);
-      await repo.save(game);
+      await repo.removePlayer(gameId, playerId);
 
       gateway.leaveGameRoom(socketId, gameId);
       gateway.toAdmins(gameId, "player-left", { playerId, game });
