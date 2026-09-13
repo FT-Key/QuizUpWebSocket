@@ -67,6 +67,8 @@ describe("SubmitAnswer — scoring (espejo de gameStore.test)", () => {
     expect(result).not.toBeNull();
     expect(result!.player.score).toBe(2001);
     expect(result!.player.answers["q-1"]).toBe(1);
+    // US-20: submit instantáneo ⇒ 0 ms (valor válido).
+    expect(result!.player.answerTimesMs).toEqual({ "q-1": 0 });
     expect(result!.finishedQuestion).toBe(true);
     expect(result!.game.currentQuestionStartTime).toBe(0);
     expect(saveSpy).not.toHaveBeenCalled();
@@ -98,6 +100,7 @@ describe("SubmitAnswer — scoring (espejo de gameStore.test)", () => {
     const result = await useCase.execute(submit("p-1", 1));
 
     expect(result!.player.score).toBe(1950);
+    expect(result!.player.answerTimesMs).toEqual({ "q-1": 504 });
   });
 
   it("correcta con remaining 0: suma solo 1", async () => {
@@ -118,6 +121,28 @@ describe("SubmitAnswer — scoring (espejo de gameStore.test)", () => {
     const result = await useCase.execute(submit("p-1", 1));
 
     expect(result!.player.score).toBe(1);
+  });
+
+  it("submit tardío (20001 ms): el tiempo se clampea al límite de la pregunta", async () => {
+    const { repo, clock, useCase } = setup();
+    repo.seed(activeGame());
+    clock.advance(20001);
+
+    const result = await useCase.execute(submit("p-1", 1));
+
+    expect(result!.player.answerTimesMs).toEqual({ "q-1": 20000 });
+  });
+
+  it("jugador legacy sin answerTimesMs: el submit materializa el mapa con el tiempo", async () => {
+    const { repo, clock, useCase } = setup();
+    const legacy = makePlayer("p-1", "Ana"); // sin answerTimesMs (builder no lo setea por default)
+    repo.seed(activeGame([legacy]));
+    clock.advance(504);
+
+    const result = await useCase.execute(submit("p-1", 1));
+
+    expect("answerTimesMs" in legacy).toBe(false);
+    expect(result!.player.answerTimesMs).toEqual({ "q-1": 504 });
   });
 
   it("incorrecta: 0 puntos pero queda registrada como respondida", async () => {
@@ -153,6 +178,8 @@ describe("SubmitAnswer — scoring (espejo de gameStore.test)", () => {
     expect(result!.game.status).toBe("waiting");
     expect(result!.player.answers["q-1"]).toBe(1);
     expect(result!.player.score).toBe(1);
+    // US-20: sin pregunta iniciada (startTime 0) el tiempo cae al límite.
+    expect(result!.player.answerTimesMs).toEqual({ "q-1": 20000 });
   });
 });
 
@@ -225,6 +252,7 @@ describe("SubmitAnswer — allAnswered", () => {
 
     const first = await useCase.execute(submit("p-1", 1));
     expect(first!.player.score).toBe(2001);
+    expect(first!.player.answerTimesMs).toEqual({ "q-1": 0 });
 
     // El fake devuelve copias; se re-siembra el estado mutado como haría la
     // caché viva del adaptador Mongo entre dos submits (el use case no persiste).
@@ -235,6 +263,30 @@ describe("SubmitAnswer — allAnswered", () => {
 
     expect(second!.finishedQuestion).toBe(true);
     expect(second!.player.score).toBe(2002);
+    // US-20: el duplicado sobrescribe el tiempo (paridad con `answers`). Tras el
+    // cierre de la pregunta `currentQuestionStartTime` quedó en 0, así que el
+    // clamp lo lleva al límite (ver caso dedicado con pregunta activa).
+    expect(second!.player.answerTimesMs).toEqual({ "q-1": 20000 });
+  });
+
+  it("duplicado con la pregunta activa (+1000 ms): sobrescribe el tiempo previo", async () => {
+    const { repo, clock, useCase } = setup();
+    // Dos jugadores: P2 sin responder mantiene la pregunta abierta (startTime vivo).
+    repo.seed(activeGame([makePlayer("p-1", "Ana"), makePlayer("p-2", "Luis")]));
+
+    const first = await useCase.execute(submit("p-1", 1));
+    expect(first!.finishedQuestion).toBe(false);
+    expect(first!.player.answerTimesMs).toEqual({ "q-1": 0 });
+
+    // El fake devuelve copias; se re-siembra el estado mutado como haría la
+    // caché viva del adaptador Mongo entre dos submits (el use case no persiste).
+    repo.seed(first!.game);
+    clock.advance(1000);
+
+    const second = await useCase.execute(submit("p-1", 1));
+
+    expect(second!.finishedQuestion).toBe(false);
+    expect(second!.player.answerTimesMs).toEqual({ "q-1": 1000 });
   });
 
   it("CARACTERIZACIÓN: re-responder incorrecto sobrescribe y no resta", async () => {
