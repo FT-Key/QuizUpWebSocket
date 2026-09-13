@@ -18,6 +18,7 @@ export type GameDoc = {
     name: string;
     gameId: string;
     answers: Record<string, number>;
+    answerTimesMs?: Record<string, number>;
     score: number;
     joinedAt: Date;
     avatar?: PlayerAvatar;

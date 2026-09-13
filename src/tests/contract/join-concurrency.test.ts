@@ -22,7 +22,7 @@ import { createJoinGameUseCase } from "../../core/application/use-cases/join-gam
 import { connectToMongo } from "../../adapters/persistence/mongo/connection.js";
 import { createMongoGameRepository } from "../../adapters/persistence/mongo/game-repository.mongo.js";
 import { GameModel } from "../../adapters/persistence/mongo/game.schema.js";
-import { answersToRecord } from "../../adapters/persistence/mongo/game.mapper.js";
+import { numberMapToRecord } from "../../adapters/persistence/mongo/game.mapper.js";
 import type { GameDoc } from "../../types/db.js";
 import { GameBuilder } from "../builders/game-builder.js";
 import { PlayerBuilder } from "../builders/player-builder.js";
@@ -164,7 +164,7 @@ describe.skipIf(!process.env.MONGODB_URI_TEST)("JoinGame — carrera Mongo (US-1
 
       // La mutación sigue siendo solo de la caché viva (submit-answer no persiste).
       const doc = await GameModel.findOne({ gameCode: code }).lean<GameDoc | null>();
-      expect(answersToRecord(doc!.players[0].answers)).toEqual({});
+      expect(numberMapToRecord(doc!.players[0].answers)).toEqual({});
       expect(doc!.players[0].score).toBe(0);
     });
 
@@ -194,7 +194,7 @@ describe.skipIf(!process.env.MONGODB_URI_TEST)("JoinGame — carrera Mongo (US-1
 
       const doc = await GameModel.findOne({ gameCode: code }).lean<GameDoc | null>();
       expect(doc!.locked).toBe(true);
-      expect(answersToRecord(doc!.players[0].answers)).toEqual({ [questionId]: 1 });
+      expect(numberMapToRecord(doc!.players[0].answers)).toEqual({ [questionId]: 1 });
       expect(doc!.players[0].score).toBe(7);
     });
 

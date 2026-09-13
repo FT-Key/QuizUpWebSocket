@@ -3,7 +3,7 @@ import { GAME_STATUS } from "../../../core/domain/game/constants.js";
 import type { GameRepository } from "../../../core/application/ports/game-repository.js";
 import { GameModel } from "./game.schema.js";
 import {
-  answersToRecord,
+  numberMapToRecord,
   toDomain,
   toPersistence,
   toPersistencePlayer,
@@ -166,16 +166,21 @@ export function createMongoGameRepository(
       if (players.length === 0) return;
 
       // Equivalente al `bulkWrite` legacy de timeout/next-question/finish-game,
-      // ampliado a `avatar` (US-19). Selectivo por jugador existente: nunca
-      // inserta ni elimina; un id desconocido simplemente no matchea.
+      // ampliado a `avatar` (US-19) y a `answerTimesMs` (US-20). Selectivo por
+      // jugador existente: nunca inserta ni elimina; un id desconocido
+      // simplemente no matchea. El `$set` de tiempos es condicional para no
+      // fabricar `{}` en jugadores legacy (la ausencia debe sobrevivir).
       const operations = players.map((player) => ({
         updateOne: {
           filter: { gameCode: gameId, "players.id": player.id },
           update: {
             $set: {
-              "players.$.answers": answersToRecord(player.answers),
+              "players.$.answers": numberMapToRecord(player.answers),
               "players.$.score": player.score,
               "players.$.avatar": player.avatar ?? null,
+              ...(player.answerTimesMs !== undefined
+                ? { "players.$.answerTimesMs": numberMapToRecord(player.answerTimesMs) }
+                : {}),
             },
           },
         },

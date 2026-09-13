@@ -241,6 +241,43 @@ function repositoryContractTests<TRepo extends CacheAwareGameRepository>(
       expect(foundLuis!.avatar).toBeUndefined();
     });
 
+    it("US-20 (10): updatePlayers persiste answerTimesMs de jugadores existentes", async () => {
+      const code = nextCode();
+      const ana = new PlayerBuilder()
+        .withId(`${code}-ana`)
+        .withGameId(code)
+        .withAnswers({ "q-1": 0 })
+        .build();
+      await seedGame(repo, new GameBuilder().withId(code).withPlayers(ana).build());
+
+      await repo.updatePlayers(code, [
+        { ...ana, answers: { "q-1": 1 }, score: 2001, answerTimesMs: { "q-1": 504 } },
+      ]);
+
+      const found = await repo.findById(code);
+      const foundAna = found!.players.find((p) => p.id === `${code}-ana`);
+      expect(foundAna!.answerTimesMs).toEqual({ "q-1": 504 });
+    });
+
+    it("US-20 (11): updatePlayers no materializa answerTimesMs en jugadores legacy", async () => {
+      const code = nextCode();
+      const legacy = new PlayerBuilder()
+        .withId(`${code}-legacy`)
+        .withGameId(code)
+        .withAnswers({ "q-1": 0 })
+        .build();
+      await seedGame(repo, new GameBuilder().withId(code).withPlayers(legacy).build());
+
+      // Update sin `answerTimesMs`: el `$set` condicional (y el fake) no deben
+      // fabricar `{}` sobre un jugador que nunca tuvo el campo.
+      await repo.updatePlayers(code, [{ ...legacy, answers: { "q-1": 1 }, score: 1 }]);
+
+      const found = await repo.findById(code);
+      const foundLegacy = found!.players.find((p) => p.id === `${code}-legacy`);
+      expect("answerTimesMs" in foundLegacy!).toBe(false);
+      expect(foundLegacy!.answerTimesMs).toBeUndefined();
+    });
+
     it("findByPlayerId encuentra la partida del jugador y null en miss", async () => {
       const code = nextCode();
       const player = new PlayerBuilder().withId(`${code}-p1`).withGameId(code).build();

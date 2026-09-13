@@ -10,12 +10,13 @@ import { DEFAULT_TIME_LIMIT_MS } from "../../../constants/game.js";
  * `toDomain` es la migración 1:1 del `buildGame` legacy (`socket/helpers.ts`).
  */
 
-/** Jugador tal como se persiste en Mongo (answers como objeto; Mongoose lo castea a Map). */
+/** Jugador tal como se persiste en Mongo (answers/answerTimesMs como objeto; Mongoose los castea a Map). */
 export interface PersistedPlayer {
   id: string;
   name: string;
   gameId: string;
   answers: Record<string, number>;
+  answerTimesMs: Record<string, number>;
   score: number;
   joinedAt: Date;
   avatar?: { seed: string; accessories?: string[] };
@@ -33,16 +34,17 @@ export interface GamePersistence {
 }
 
 /**
- * Convierte `answers` (Map del driver, objeto plano de `.lean()` u otro valor
- * inesperado) a `Record<string, number>`. Tolerante a propósito: el legacy
- * recibía ambas representaciones según la ruta de lectura.
+ * Convierte un Map del driver (u objeto plano de `.lean()`, u otro valor
+ * inesperado) a `Record<string, number>`. Sirve a `answers` y a
+ * `answerTimesMs` (US-20). Tolerante a propósito: el legacy recibía ambas
+ * representaciones según la ruta de lectura.
  */
-export function answersToRecord(answers: unknown): Record<string, number> {
-  if (answers instanceof Map) {
-    return Object.fromEntries(answers as Map<string, number>);
+export function numberMapToRecord(value: unknown): Record<string, number> {
+  if (value instanceof Map) {
+    return Object.fromEntries(value as Map<string, number>);
   }
-  if (answers && typeof answers === "object") {
-    return { ...(answers as Record<string, number>) };
+  if (value && typeof value === "object") {
+    return { ...(value as Record<string, number>) };
   }
   return {};
 }
@@ -64,7 +66,12 @@ export function toDomain(doc: GameDoc): Game {
       id: p.id,
       name: p.name,
       gameId: doc.gameCode,
-      answers: answersToRecord(p.answers),
+      answers: numberMapToRecord(p.answers),
+      // Legacy: sin campo en el doc la clave se omite (no se fabrica `{}`);
+      // con campo (aunque sea `{}`) se materializa el Record.
+      ...(p.answerTimesMs !== undefined
+        ? { answerTimesMs: numberMapToRecord(p.answerTimesMs) }
+        : {}),
       score: p.score,
       joinedAt: p.joinedAt,
       avatar: p.avatar ?? undefined,
@@ -106,14 +113,17 @@ export function toPersistence(game: Game): GamePersistence {
  *
  * Sella `gameId` con el id de la partida (el `gameCode` es la fuente de verdad,
  * igual que hace `toDomain`); `answers` sale como objeto plano y `avatar` es
- * opcional. `joinedAt` se preserva tal cual.
+ * opcional. `joinedAt` se preserva tal cual. US-20: `answerTimesMs` se
+ * materializa como `{}` en el alta nueva (el resto de las escrituras van por
+ * `updatePlayers`).
  */
 export function toPersistencePlayer(player: Player, gameId: string): PersistedPlayer {
   return {
     id: player.id,
     name: player.name,
     gameId,
-    answers: answersToRecord(player.answers),
+    answers: numberMapToRecord(player.answers),
+    answerTimesMs: numberMapToRecord(player.answerTimesMs ?? {}),
     score: player.score,
     joinedAt: player.joinedAt,
     avatar: player.avatar,

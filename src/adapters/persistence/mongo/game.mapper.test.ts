@@ -10,7 +10,7 @@ import type { GameDoc } from "../../../types/db.js";
 import { DEFAULT_TIME_LIMIT_MS } from "../../../constants/game.js";
 import { GameBuilder } from "../../../tests/builders/game-builder.js";
 import { PlayerBuilder } from "../../../tests/builders/player-builder.js";
-import { answersToRecord, toDomain, toPersistence, toPersistencePlayer } from "./game.mapper.js";
+import { numberMapToRecord, toDomain, toPersistence, toPersistencePlayer } from "./game.mapper.js";
 
 const QUESTION_ID = new Types.ObjectId("64b000000000000000000001");
 const CREATED_AT = new Date("2026-01-02T03:04:05.000Z");
@@ -51,34 +51,34 @@ function makeDoc(overrides: Partial<GameDoc> = {}): GameDoc {
   };
 }
 
-describe("answersToRecord", () => {
+describe("numberMapToRecord", () => {
   it("convierte un Map (driver Mongo) a un objeto plano", () => {
     const answers = new Map<string, number>([
       ["q-1", 2],
       ["q-2", 0],
     ]);
 
-    expect(answersToRecord(answers)).toEqual({ "q-1": 2, "q-2": 0 });
+    expect(numberMapToRecord(answers)).toEqual({ "q-1": 2, "q-2": 0 });
   });
 
   it("copia un objeto plano sin compartir la referencia original", () => {
     const answers: Record<string, number> = { "q-1": 3 };
 
-    const result = answersToRecord(answers);
+    const result = numberMapToRecord(answers);
 
     expect(result).toEqual({ "q-1": 3 });
     expect(result).not.toBe(answers);
   });
 
   it("devuelve {} para undefined y null", () => {
-    expect(answersToRecord(undefined)).toEqual({});
-    expect(answersToRecord(null)).toEqual({});
+    expect(numberMapToRecord(undefined)).toEqual({});
+    expect(numberMapToRecord(null)).toEqual({});
   });
 
   it("devuelve {} para valores que no son colecciones", () => {
-    expect(answersToRecord(42)).toEqual({});
-    expect(answersToRecord("respuestas")).toEqual({});
-    expect(answersToRecord(true)).toEqual({});
+    expect(numberMapToRecord(42)).toEqual({});
+    expect(numberMapToRecord("respuestas")).toEqual({});
+    expect(numberMapToRecord(true)).toEqual({});
   });
 });
 
@@ -172,6 +172,62 @@ describe("toDomain", () => {
 
     expect(game.players[0].answers).toEqual({ "q-1": 2 });
     expect(game.players[0].answers).not.toBeInstanceOf(Map);
+  });
+
+  it("convierte answerTimesMs (Map/objeto) a Record sin compartir el Map", () => {
+    const timesMap = new Map<string, number>([
+      [QUESTION_ID.toString(), 504],
+      ["q-2", 0],
+    ]);
+    const doc = makeDoc({
+      players: [
+        {
+          id: "player-1",
+          name: "Ana",
+          gameId: "123456",
+          answers: {},
+          answerTimesMs: timesMap as unknown as Record<string, number>,
+          score: 0,
+          joinedAt: CREATED_AT,
+        },
+      ],
+    });
+
+    const game = toDomain(doc);
+
+    expect(game.players[0].answerTimesMs).toEqual({
+      [QUESTION_ID.toString()]: 504,
+      "q-2": 0,
+    });
+    expect(game.players[0].answerTimesMs).not.toBeInstanceOf(Map);
+  });
+
+  it("answerTimesMs ausente ⇒ clave ausente (legacy)", () => {
+    const game = toDomain(makeDoc());
+
+    expect("answerTimesMs" in game.players[0]).toBe(false);
+    expect(game.players[0].answerTimesMs).toBeUndefined();
+  });
+
+  it("answerTimesMs {} presente ⇒ clave presente con {}", () => {
+    const doc = makeDoc({
+      players: [
+        {
+          id: "player-1",
+          name: "Ana",
+          gameId: "123456",
+          answers: {},
+          answerTimesMs: {},
+          score: 0,
+          joinedAt: CREATED_AT,
+        },
+      ],
+    });
+
+    const game = toDomain(doc);
+
+    expect(game.players[0].answerTimesMs).toEqual({});
+    expect("answerTimesMs" in game.players[0]).toBe(true);
   });
 
   it("conserva el status cancelled", () => {
@@ -282,5 +338,33 @@ describe("toPersistencePlayer", () => {
     expect(persisted.avatar).toBeUndefined();
     expect(persisted.answers).toEqual({ "q-1": 0 });
     expect(persisted.answers).not.toBe(player.answers);
+  });
+
+  it("US-20: materializa answerTimesMs {} en un alta sin tiempos", () => {
+    const player = new PlayerBuilder()
+      .withId("p-3")
+      .withName("Sara")
+      .withGameId("654321")
+      .build();
+
+    const persisted = toPersistencePlayer(player, "654321");
+
+    expect(persisted.answerTimesMs).toEqual({});
+  });
+
+  it("US-20: clona answerTimesMs presentes sin aliasing", () => {
+    const times: Record<string, number> = { "q-1": 504, "q-2": 0 };
+    const player = new PlayerBuilder()
+      .withId("p-4")
+      .withName("Leo")
+      .withGameId("654321")
+      .withAnswerTimesMs(times)
+      .build();
+
+    const persisted = toPersistencePlayer(player, "654321");
+
+    expect(persisted.answerTimesMs).toEqual({ "q-1": 504, "q-2": 0 });
+    expect(persisted.answerTimesMs).not.toBe(times);
+    expect(persisted.answerTimesMs).not.toBe(player.answerTimesMs);
   });
 });
