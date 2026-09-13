@@ -8,6 +8,8 @@ export interface Player {
   name: string;
   gameId: string;
   answers: Record<string, number>; // questionId -> índice elegido
+  /** ms transcurridos desde el inicio de la pregunta al responder; `undefined` en partidas legacy. */
+  answerTimesMs?: Record<string, number>;
   score: number;
   joinedAt: Date;
   avatar?: PlayerAvatar;

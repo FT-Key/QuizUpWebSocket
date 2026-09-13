@@ -44,6 +44,9 @@ const playerSchema = new Schema({
   name: { type: String, required: true },
   gameId: { type: String, required: true },
   answers: { type: Map, of: Number, default: {} },
+  // US-20: sin `default` — la ausencia legacy debe sobrevivir a `create` crudo
+  // (con default, Mongoose "fabricaría" `{}` en docs viejos al hidratar).
+  answerTimesMs: { type: Map, of: Number },
   score: { type: Number, default: 0 },
   joinedAt: { type: Date, default: Date.now },
   avatar: { type: playerAvatarSchema, default: null },

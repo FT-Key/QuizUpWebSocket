@@ -102,6 +102,11 @@ export function createInMemoryGameRepository(
         target.answers = { ...player.answers };
         target.score = player.score;
         target.avatar = player.avatar ? structuredClone(player.avatar) : undefined;
+        // US-20: paridad con el `$set` condicional de Mongo — si el argumento no
+        // trae tiempos (legacy) no se pisa ni se materializa la ausencia.
+        if (player.answerTimesMs !== undefined) {
+          target.answerTimesMs = { ...player.answerTimesMs };
+        }
       }
     },
 

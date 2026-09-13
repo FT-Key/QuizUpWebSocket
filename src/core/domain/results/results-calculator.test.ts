@@ -71,6 +71,39 @@ describe("results-calculator — paridad por defecto con gameStore.getGameResult
     expect(results.leaderboard[0].percentage).toBe(0);
   });
 
+  it("jugador sin respuestas: entrada exacta del leaderboard (percentage 0 y clave avatar presente)", () => {
+    const game = new GameBuilder()
+      .withQuestions(question("q-1", 1))
+      .withPlayer(
+        new PlayerBuilder().withId("player-1").withName("Franco").withScore(0).build()
+      )
+      .build();
+
+    const results = calculateResults(game);
+
+    expect(results.leaderboard).toEqual([
+      {
+        playerId: "player-1",
+        name: "Franco",
+        score: 0,
+        correctAnswers: 0,
+        totalQuestions: 1,
+        percentage: 0,
+        avatar: undefined,
+      },
+    ]);
+    // `toEqual` ignora claves con valor `undefined`: se congela el set exacto de claves.
+    expect(Object.keys(results.leaderboard[0]).sort()).toEqual([
+      "avatar",
+      "correctAnswers",
+      "name",
+      "percentage",
+      "playerId",
+      "score",
+      "totalQuestions",
+    ]);
+  });
+
   it("sin jugadores ⇒ leaderboard [] y totalPlayers 0; averageScore con bandera ⇒ 0", () => {
     const game = new GameBuilder().withQuestions(question("q-1", 1)).build();
 
@@ -157,6 +190,94 @@ describe("results-calculator — includeQuestionResults", () => {
       "Luis",
     ]);
   });
+
+  it("sin preguntas ⇒ questionResults [] con la bandera activa", () => {
+    const game = new GameBuilder()
+      .withPlayer(new PlayerBuilder().withId("player-1").withName("Ana").build())
+      .build();
+
+    const results = calculateResults(game, { includeQuestionResults: true });
+
+    expect(results.questionResults).toEqual([]);
+  });
+});
+
+describe("results-calculator — orden del leaderboard (US-20)", () => {
+  it("ordena por score desc aunque el orden de inserción sea el inverso", () => {
+    const game = new GameBuilder()
+      .withId("game-1")
+      .withQuestions(question("q-1", 1))
+      .withPlayer(
+        new PlayerBuilder()
+          .withId("p-beto")
+          .withName("Beto")
+          .withAnswers({ "q-1": 0 })
+          .withScore(100)
+          .build()
+      )
+      .withPlayer(
+        new PlayerBuilder()
+          .withId("p-ana")
+          .withName("Ana")
+          .withAnswers({ "q-1": 1 })
+          .withScore(101)
+          .build()
+      )
+      .build();
+
+    const results = calculateResults(game);
+
+    expect(results.leaderboard.map((entry) => entry.playerId)).toEqual(["p-ana", "p-beto"]);
+  });
+
+  it("empate en score: desempata por totalTimeMs asc y emite la clave", () => {
+    const game = new GameBuilder()
+      .withId("game-1")
+      .withQuestionTimeLimit(20_000)
+      .withQuestions(question("q-1", 1))
+      .withPlayers(
+        {
+          ...new PlayerBuilder().withId("p-slow").withName("Slow").withScore(500).build(),
+          answerTimesMs: { "q-1": 8000 },
+        },
+        {
+          ...new PlayerBuilder().withId("p-fast").withName("Fast").withScore(500).build(),
+          answerTimesMs: { "q-1": 2000 },
+        }
+      )
+      .build();
+
+    const leaderboard = calculateResults(game).leaderboard;
+
+    expect(leaderboard.map((entry) => entry.playerId)).toEqual(["p-fast", "p-slow"]);
+    expect(leaderboard.map((entry) => entry.totalTimeMs)).toEqual([2000, 8000]);
+  });
+
+  it("legacy sin answerTimesMs: omite la clave y cae a joinedAt asc", () => {
+    const joinedBase = 1_700_000_000_000;
+    const game = new GameBuilder()
+      .withId("game-1")
+      .withPlayers(
+        new PlayerBuilder()
+          .withId("p-late")
+          .withName("Late")
+          .withScore(500)
+          .withJoinedAt(new Date(joinedBase + 1000))
+          .build(),
+        new PlayerBuilder()
+          .withId("p-early")
+          .withName("Early")
+          .withScore(500)
+          .withJoinedAt(new Date(joinedBase))
+          .build()
+      )
+      .build();
+
+    const leaderboard = calculateResults(game).leaderboard;
+
+    expect(leaderboard.map((entry) => entry.playerId)).toEqual(["p-early", "p-late"]);
+    expect(leaderboard.every((entry) => !("totalTimeMs" in entry))).toBe(true);
+  });
 });
 
 describe("results-calculator — includeAverageScore y casos borde", () => {
@@ -192,5 +313,26 @@ describe("results-calculator — includeAverageScore y casos borde", () => {
     const results = calculateResults(game);
 
     expect(results.leaderboard[0].avatar).toEqual(avatar);
+  });
+
+  it("no muta el Game de entrada (con ambas banderas activas)", () => {
+    const game = new GameBuilder()
+      .withId("game-1")
+      .withCreatedAt(new Date(BASE_TIME))
+      .withQuestions(question("q-1", 1), question("q-2", 2))
+      .withPlayer(
+        new PlayerBuilder()
+          .withId("player-1")
+          .withName("Ana")
+          .withAnswer("q-1", 1)
+          .withScore(2001)
+          .build()
+      )
+      .build();
+    const snapshot = structuredClone(game);
+
+    calculateResults(game, { includeQuestionResults: true, includeAverageScore: true });
+
+    expect(game).toEqual(snapshot);
   });
 });

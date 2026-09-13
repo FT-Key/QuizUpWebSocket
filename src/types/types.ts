@@ -24,6 +24,8 @@ export interface Player {
   name: string;
   gameId: string;
   answers: { [questionId: string]: number };
+  /** ms transcurridos desde el inicio de la pregunta al responder; `undefined` en partidas legacy. */
+  answerTimesMs?: Record<string, number>;
   score: number;
   joinedAt: Date;
   avatar?: PlayerAvatar;
@@ -89,6 +91,8 @@ export interface GameResults {
     totalQuestions: number;
     percentage: number;
     avatar?: PlayerAvatar;
+    /** US-20: suma de tiempos por respuesta (preguntas sin dato = `questionTimeLimit`). Ausente en legacy. */
+    totalTimeMs?: number;
   }>;
   questionResults?: Array<{
     questionId: string;

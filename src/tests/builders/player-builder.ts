@@ -40,6 +40,12 @@ export class PlayerBuilder {
     return this;
   }
 
+  /** Sin default: omitirlo deja al jugador en modo legacy (clave ausente). */
+  withAnswerTimesMs(answerTimesMs: Record<string, number>): this {
+    this.player.answerTimesMs = answerTimesMs;
+    return this;
+  }
+
   withJoinedAt(joinedAt: Date): this {
     this.player.joinedAt = joinedAt;
     return this;
@@ -54,6 +60,9 @@ export class PlayerBuilder {
     return {
       ...this.player,
       answers: { ...this.player.answers },
+      ...(this.player.answerTimesMs !== undefined
+        ? { answerTimesMs: { ...this.player.answerTimesMs } }
+        : {}),
       joinedAt: new Date(this.player.joinedAt.getTime()),
       avatar: this.player.avatar ? { ...this.player.avatar } : this.player.avatar,
     };
