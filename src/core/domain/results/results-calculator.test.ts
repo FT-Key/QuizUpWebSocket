@@ -71,6 +71,39 @@ describe("results-calculator — paridad por defecto con gameStore.getGameResult
     expect(results.leaderboard[0].percentage).toBe(0);
   });
 
+  it("jugador sin respuestas: entrada exacta del leaderboard (percentage 0 y clave avatar presente)", () => {
+    const game = new GameBuilder()
+      .withQuestions(question("q-1", 1))
+      .withPlayer(
+        new PlayerBuilder().withId("player-1").withName("Franco").withScore(0).build()
+      )
+      .build();
+
+    const results = calculateResults(game);
+
+    expect(results.leaderboard).toEqual([
+      {
+        playerId: "player-1",
+        name: "Franco",
+        score: 0,
+        correctAnswers: 0,
+        totalQuestions: 1,
+        percentage: 0,
+        avatar: undefined,
+      },
+    ]);
+    // `toEqual` ignora claves con valor `undefined`: se congela el set exacto de claves.
+    expect(Object.keys(results.leaderboard[0]).sort()).toEqual([
+      "avatar",
+      "correctAnswers",
+      "name",
+      "percentage",
+      "playerId",
+      "score",
+      "totalQuestions",
+    ]);
+  });
+
   it("sin jugadores ⇒ leaderboard [] y totalPlayers 0; averageScore con bandera ⇒ 0", () => {
     const game = new GameBuilder().withQuestions(question("q-1", 1)).build();
 
@@ -157,6 +190,16 @@ describe("results-calculator — includeQuestionResults", () => {
       "Luis",
     ]);
   });
+
+  it("sin preguntas ⇒ questionResults [] con la bandera activa", () => {
+    const game = new GameBuilder()
+      .withPlayer(new PlayerBuilder().withId("player-1").withName("Ana").build())
+      .build();
+
+    const results = calculateResults(game, { includeQuestionResults: true });
+
+    expect(results.questionResults).toEqual([]);
+  });
 });
 
 describe("results-calculator — includeAverageScore y casos borde", () => {
@@ -192,5 +235,26 @@ describe("results-calculator — includeAverageScore y casos borde", () => {
     const results = calculateResults(game);
 
     expect(results.leaderboard[0].avatar).toEqual(avatar);
+  });
+
+  it("no muta el Game de entrada (con ambas banderas activas)", () => {
+    const game = new GameBuilder()
+      .withId("game-1")
+      .withCreatedAt(new Date(BASE_TIME))
+      .withQuestions(question("q-1", 1), question("q-2", 2))
+      .withPlayer(
+        new PlayerBuilder()
+          .withId("player-1")
+          .withName("Ana")
+          .withAnswer("q-1", 1)
+          .withScore(2001)
+          .build()
+      )
+      .build();
+    const snapshot = structuredClone(game);
+
+    calculateResults(game, { includeQuestionResults: true, includeAverageScore: true });
+
+    expect(game).toEqual(snapshot);
   });
 });

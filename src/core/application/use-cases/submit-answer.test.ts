@@ -185,6 +185,40 @@ describe("SubmitAnswer — allAnswered", () => {
     expect(gateway.emissions.filter((e) => e.event === "question-finished")).toHaveLength(2);
   });
 
+  it("emisiones: game-updated a game+admins con el Game emitido y question-finished con el índice", async () => {
+    const { repo, gateway, useCase } = setup();
+    repo.seed(activeGame([makePlayer("p-1", "Ana"), makePlayer("p-2", "Luis")]));
+
+    const first = await useCase.execute(submit("p-1", 1));
+    const gameAfterFirst = structuredClone(first!.game);
+
+    const updates = gateway.emissions.filter((e) => e.event === "game-updated");
+    expect(updates.map((e) => `${e.kind}:${e.gameId}`)).toEqual([
+      `game:${GAME_ID}`,
+      `admins:${GAME_ID}`,
+    ]);
+    expect(updates[0].payload).toEqual({ game: gameAfterFirst });
+    expect(updates[1].payload).toEqual({ game: gameAfterFirst });
+    expect(gateway.emissions.some((e) => e.event === "question-finished")).toBe(false);
+
+    // El use case no persiste: se re-siembra el estado mutado como haría la
+    // caché viva del adaptador Mongo entre dos submits (mismo patrón que el
+    // test de duplicados).
+    repo.seed(first!.game);
+
+    const second = await useCase.execute(submit("p-2", 1));
+
+    const finished = gateway.emissions.filter((e) => e.event === "question-finished");
+    expect(finished.map((e) => `${e.kind}:${e.gameId}`)).toEqual([
+      `game:${GAME_ID}`,
+      `admins:${GAME_ID}`,
+    ]);
+    expect(finished[0].payload).toEqual({
+      currentQuestionIndex: second!.game.currentQuestionIndex,
+    });
+    expect(finished[1].payload).toEqual(finished[0].payload);
+  });
+
   it("CARACTERIZACIÓN: re-responder vuelve a sumar 1 sin bonus (bug congelado)", async () => {
     const { repo, clock, useCase } = setup();
     repo.seed(activeGame());
