@@ -202,6 +202,84 @@ describe("results-calculator — includeQuestionResults", () => {
   });
 });
 
+describe("results-calculator — orden del leaderboard (US-20)", () => {
+  it("ordena por score desc aunque el orden de inserción sea el inverso", () => {
+    const game = new GameBuilder()
+      .withId("game-1")
+      .withQuestions(question("q-1", 1))
+      .withPlayer(
+        new PlayerBuilder()
+          .withId("p-beto")
+          .withName("Beto")
+          .withAnswers({ "q-1": 0 })
+          .withScore(100)
+          .build()
+      )
+      .withPlayer(
+        new PlayerBuilder()
+          .withId("p-ana")
+          .withName("Ana")
+          .withAnswers({ "q-1": 1 })
+          .withScore(101)
+          .build()
+      )
+      .build();
+
+    const results = calculateResults(game);
+
+    expect(results.leaderboard.map((entry) => entry.playerId)).toEqual(["p-ana", "p-beto"]);
+  });
+
+  it("empate en score: desempata por totalTimeMs asc y emite la clave", () => {
+    const game = new GameBuilder()
+      .withId("game-1")
+      .withQuestionTimeLimit(20_000)
+      .withQuestions(question("q-1", 1))
+      .withPlayers(
+        {
+          ...new PlayerBuilder().withId("p-slow").withName("Slow").withScore(500).build(),
+          answerTimesMs: { "q-1": 8000 },
+        },
+        {
+          ...new PlayerBuilder().withId("p-fast").withName("Fast").withScore(500).build(),
+          answerTimesMs: { "q-1": 2000 },
+        }
+      )
+      .build();
+
+    const leaderboard = calculateResults(game).leaderboard;
+
+    expect(leaderboard.map((entry) => entry.playerId)).toEqual(["p-fast", "p-slow"]);
+    expect(leaderboard.map((entry) => entry.totalTimeMs)).toEqual([2000, 8000]);
+  });
+
+  it("legacy sin answerTimesMs: omite la clave y cae a joinedAt asc", () => {
+    const joinedBase = 1_700_000_000_000;
+    const game = new GameBuilder()
+      .withId("game-1")
+      .withPlayers(
+        new PlayerBuilder()
+          .withId("p-late")
+          .withName("Late")
+          .withScore(500)
+          .withJoinedAt(new Date(joinedBase + 1000))
+          .build(),
+        new PlayerBuilder()
+          .withId("p-early")
+          .withName("Early")
+          .withScore(500)
+          .withJoinedAt(new Date(joinedBase))
+          .build()
+      )
+      .build();
+
+    const leaderboard = calculateResults(game).leaderboard;
+
+    expect(leaderboard.map((entry) => entry.playerId)).toEqual(["p-early", "p-late"]);
+    expect(leaderboard.every((entry) => !("totalTimeMs" in entry))).toBe(true);
+  });
+});
+
 describe("results-calculator — includeAverageScore y casos borde", () => {
   it("averageScore = suma / (n || 1) sin redondear: 2 jugadores ⇒ 1000.5", () => {
     const game = new GameBuilder()
