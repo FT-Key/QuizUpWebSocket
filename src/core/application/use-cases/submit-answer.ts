@@ -56,11 +56,23 @@ export function createSubmitAnswerUseCase(
 
       player.answers[questionId] = answer;
 
-      const remainingMs = game.questionTimeLimit - (clock.now() - game.currentQuestionStartTime);
+      const now = clock.now();
+      const remainingMs = game.questionTimeLimit - (now - game.currentQuestionStartTime);
       player.score += scoring.calculate({
         isCorrect: answer === question.correctAnswer,
         remainingMs,
       });
+
+      // US-20: tiempo de la respuesta para el desempate del ranking (aditivo).
+      // Clamp [0, questionTimeLimit]: `currentQuestionStartTime === 0` (pregunta
+      // no iniciada) o submits tardíos quedan en el límite. El score sigue
+      // usando `remainingMs` sin tocar (paridad congelada) y un duplicado
+      // sobrescribe el tiempo, en paridad con `answers`.
+      const elapsedMs = Math.min(
+        Math.max(now - game.currentQuestionStartTime, 0),
+        game.questionTimeLimit
+      );
+      (player.answerTimesMs ??= {})[questionId] = elapsedMs;
 
       const allAnswered = game.players.every((p) => p.answers[questionId] !== undefined);
       let finishedQuestion = false;

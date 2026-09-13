@@ -70,9 +70,12 @@ describe("JoinGame — alta de jugador nuevo", () => {
       name: "Ana",
       gameId: GAME_ID,
       answers: {},
+      answerTimesMs: {},
       score: 0,
       avatar: { seed: "Ana" },
     });
+    // US-20: el alta nueva nace con el mapa de tiempos (clave presente aunque vacía).
+    expect("answerTimesMs" in result.player).toBe(true);
     expect(result.player.joinedAt.getTime()).toBe(BASE_TIME);
     expect(result.game.players).toHaveLength(1);
 

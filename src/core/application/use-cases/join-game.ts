@@ -121,6 +121,9 @@ export function createJoinGameUseCase(deps: JoinGameDeps): JoinGameUseCase {
           name: playerName,
           gameId,
           answers: {},
+          // US-20: partida nueva arranca con el mapa vacío (la clave presente
+          // distingue "nueva sin datos de tiempo" de "legacy sin campo").
+          answerTimesMs: {},
           score: 0,
           joinedAt: new Date(clock.now()),
           avatar: avatar ?? { seed: playerName },

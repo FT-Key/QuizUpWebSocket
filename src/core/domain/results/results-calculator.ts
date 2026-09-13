@@ -1,5 +1,5 @@
 import type { Game } from "../game.js";
-import type { PlayerAvatar } from "../player.js";
+import type { Player, PlayerAvatar } from "../player.js";
 
 export interface GameResults {
   gameId: string;
@@ -14,6 +14,8 @@ export interface GameResults {
     totalQuestions: number;
     percentage: number; // 0..100
     avatar?: PlayerAvatar;
+    /** US-20: Σ de tiempos por respuesta (preguntas sin dato = `questionTimeLimit`). Ausente en legacy. */
+    totalTimeMs?: number;
   }>;
   questionResults?: Array<{
     questionId: string;
@@ -36,23 +38,96 @@ export interface ResultsOptions {
   readonly includeAverageScore?: boolean;
 }
 
-export function calculateResults(game: Game, options: ResultsOptions = {}): GameResults {
-  const leaderboard = game.players.map((p) => {
-    const correctAnswers = Object.keys(p.answers).filter((qId) => {
-      const question = game.questions.find((q) => q.id === qId);
-      return question !== undefined && p.answers[qId] === question.correctAnswer;
-    }).length;
+/** Proyección de `Player` con los campos que deciden el orden del leaderboard (US-20). */
+export interface RankingInput {
+  readonly playerId: string;
+  readonly score: number;
+  readonly totalTimeMs?: number;
+  readonly joinedAt: Date;
+}
 
-    return {
-      playerId: p.id,
-      name: p.name,
-      score: p.score,
-      correctAnswers,
-      totalQuestions: game.questions.length,
-      percentage: game.questions.length > 0 ? (correctAnswers / game.questions.length) * 100 : 0,
-      avatar: p.avatar,
-    };
-  });
+/**
+ * Tiempo total de respuesta del jugador (US-20, D-H2.2): Σ sobre `game.questions`:
+ * - `answerTimesMs[q.id]` finito y `>= 0` ⇒ `min(valor, questionTimeLimit)` (el `0` es válido);
+ * - en cualquier otro caso (sin responder, sin entrada, valor corrupto) ⇒ `questionTimeLimit` completo.
+ * Sin `answerTimesMs` (partida legacy) devuelve `undefined`: la entrada del
+ * leaderboard omite `totalTimeMs` y `compareRanking` lo trata como `+Infinity`.
+ */
+export function totalTimeMsOf(player: Player, game: Game): number | undefined {
+  const { answerTimesMs } = player;
+  if (!answerTimesMs) return undefined;
+
+  return game.questions.reduce((total, question) => {
+    const raw = answerTimesMs[question.id];
+    const questionMs =
+      typeof raw === "number" && Number.isFinite(raw) && raw >= 0
+        ? Math.min(raw, game.questionTimeLimit)
+        : game.questionTimeLimit;
+    return total + questionMs;
+  }, 0);
+}
+
+/**
+ * Comparador total del leaderboard (US-20, D-H2.3):
+ * `score` desc → `totalTimeMs` asc (`undefined` al final) → `joinedAt` asc →
+ * `playerId` asc (code units). Nunca devuelve 0 entre jugadores distintos, así
+ * que el orden no depende de la estabilidad de `Array.prototype.sort` ni del
+ * orden de inserción en `game.players`.
+ */
+export function compareRanking(a: RankingInput, b: RankingInput): number {
+  if (a.score !== b.score) return b.score - a.score;
+
+  const timeA = a.totalTimeMs ?? Number.POSITIVE_INFINITY;
+  const timeB = b.totalTimeMs ?? Number.POSITIVE_INFINITY;
+  if (timeA !== timeB) return timeA - timeB;
+
+  const joinedDiff = a.joinedAt.getTime() - b.joinedAt.getTime();
+  if (joinedDiff !== 0) return joinedDiff;
+
+  if (a.playerId === b.playerId) return 0;
+  return a.playerId < b.playerId ? -1 : 1;
+}
+
+/**
+ * Paridad `gameStore.getGameResults`: percentage crudo, `avatar` siempre como
+ * clave y banderas para `questionResults`/`averageScore`. US-20: el
+ * `leaderboard` se ordena con `compareRanking` (score desc, desempate por
+ * `totalTimeMs`, `joinedAt` y `playerId`); `questionResults` y `averageScore`
+ * conservan el orden `game.questions` × `game.players`.
+ */
+export function calculateResults(game: Game, options: ResultsOptions = {}): GameResults {
+  const leaderboard = game.players
+    .map((player) => {
+      const correctAnswers = Object.keys(player.answers).filter((qId) => {
+        const question = game.questions.find((q) => q.id === qId);
+        return question !== undefined && player.answers[qId] === question.correctAnswer;
+      }).length;
+
+      const totalTimeMs = totalTimeMsOf(player, game);
+
+      return {
+        entry: {
+          playerId: player.id,
+          name: player.name,
+          score: player.score,
+          correctAnswers,
+          totalQuestions: game.questions.length,
+          percentage:
+            game.questions.length > 0 ? (correctAnswers / game.questions.length) * 100 : 0,
+          avatar: player.avatar,
+          // Legacy: sin dato de tiempo la clave se OMITE (la UI no inventa tiempos).
+          ...(totalTimeMs !== undefined ? { totalTimeMs } : {}),
+        },
+        rank: {
+          playerId: player.id,
+          score: player.score,
+          totalTimeMs,
+          joinedAt: player.joinedAt,
+        },
+      };
+    })
+    .sort((a, b) => compareRanking(a.rank, b.rank))
+    .map(({ entry }) => entry);
 
   const results: GameResults = {
     gameId: game.id,
